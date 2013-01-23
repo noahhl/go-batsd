@@ -10,5 +10,5 @@ clean:
 
 package:
 	make clean
-	fpm -s dir -t deb -n go-batsd -v ${VERSION} --prefix /usr/lib/go-batsd bin
+	fpm -s dir -t deb -n go-batsd -v ${VERSION} --prefix /usr/local/go-batsd bin
 
