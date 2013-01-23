@@ -158,7 +158,6 @@ func handleConn(client net.Conn) {
               io.WriteString(h, metric)
               metric_hash := hex.EncodeToString(h.Sum([]byte{}))
               file_path := ROOT + "/" + metric_hash[0:2] + "/" +  metric_hash[2:4] + "/" + metric_hash
-              fmt.Printf("%v\n", file_path)
               file, err := os.Open(file_path)
               if err != nil { panic(err) }
               reader := bufio.NewReader(file)
