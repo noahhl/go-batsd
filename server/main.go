@@ -61,6 +61,7 @@ func handleConn(client net.Conn) {
     spec := redis.DefaultSpec()
     redis, redisErr := redis.NewSynchClientWithSpec(spec)
 
+    //FIXME: build from config file
     retentions := []Retention { Retention{10, 360, 10 * 360}, Retention{60, 10080, 60*10080}, Retention{600, 52594 , 600 * 52594}}
 
     headers := map[string] int {"count": 0, "min": 1, "max": 2, "median": 3, "mean": 4, 
@@ -117,7 +118,7 @@ func handleConn(client net.Conn) {
             end_ts, _   := strconv.ParseFloat(parts[3], 64)
 
             //Redis retention
-            if delta < retentions[0].Duration { //FIXME: need to get this from configuration
+            if delta < retentions[0].Duration { 
 
                 v, redisErr := redis.Zrangebyscore(metric, start_ts, end_ts) //metric, start, end
                 if redisErr == nil {
@@ -135,8 +136,7 @@ func handleConn(client net.Conn) {
                           value, _ = strconv.ParseFloat(timer_components[headers[operation]], 64)
                         }
                         d := Datapoint{ts, value}
-                        //val, _ := json.Marshal(d)
-                        values[i] = d //string(val)
+                        values[i] = d 
                     }
                     valuesJson, _ := json.Marshal(values)
                     client.Write(valuesJson)
@@ -184,7 +184,6 @@ func handleConn(client net.Conn) {
                   }
 
                   d := Datapoint{ts, value}
-//                  val, _ := json.Marshal(d)
                   l := len(values)
                   if l + 1 > cap(values) {  // reallocate
                       newSlice := make([]Datapoint, (l+1)*2)
@@ -192,7 +191,7 @@ func handleConn(client net.Conn) {
                       values = newSlice
                   }
                   values = values[0:l+1]
-                  values[l] = d//string(val)
+                  values[l] = d
                 } 
                 if ts > end_ts {
                   break
