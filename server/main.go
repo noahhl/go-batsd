@@ -39,7 +39,7 @@ func main() {
 
 	loadConfig()
 	server, err := net.Listen("tcp", ":"+config.port)
-	if server == nil {
+	if err != nil {
 		panic(err)
 	}
 	conns := clientConns(server)
