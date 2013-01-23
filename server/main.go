@@ -145,9 +145,14 @@ func handleConn(client net.Conn) {
             } else {
               //Reading from disk
               retention := retentions[sort.Search(len(retentions), func(i int) bool { return i > 0 && retentions[i].Duration > delta } )]
-              metric = metric + ":" + strconv.FormatInt(retention.Interval, 10)
-              if m, _ := regexp.MatchString("^timers", metric); m && version == "2" {
-                metric = metric + ":2"
+              if m, _ := regexp.MatchString("^timers", metric); m  {
+                if version == "2" {
+                  metric = metric + ":" + strconv.FormatInt(retention.Interval, 10) + ":2"
+                } else {
+                  metric = metric + ":" + operation + ":" +  strconv.FormatInt(retention.Interval, 10)
+                }
+              } else {
+                metric = metric + ":" + strconv.FormatInt(retention.Interval, 10)
               }
               h := md5.New()
               io.WriteString(h, metric)
