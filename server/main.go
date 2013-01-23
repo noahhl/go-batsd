@@ -160,54 +160,53 @@ func handleConn(client net.Conn) {
 				metricHash := hex.EncodeToString(h.Sum([]byte{}))
 				filePath := ROOT + "/" + metricHash[0:2] + "/" + metricHash[2:4] + "/" + metricHash
 				file, err := os.Open(filePath)
-				if err != nil {
-					panic(err)
-				}
-				reader := bufio.NewReader(file)
 				values := make([]Datapoint, 0)
-				linesRead := 0
-				for {
-					line, err := reader.ReadString('\n')
-					linesRead += 1
-					if err != nil && err != io.EOF {
-						panic(err)
-					}
-					if err != nil && err == io.EOF {
-						break
-					}
-					if linesRead == 1 && version == "2" {
-						continue
-					} //skip the header in v2 files
-
-					parts := strings.Split(strings.TrimSpace(line), " ")
-					ts, _ := strconv.ParseFloat(parts[0], 64)
-					if ts >= startTs && ts <= endTs {
-						value := 0.0
-						if m, _ := regexp.MatchString("^counters|^gauges", metric); m {
-							//counter or gauge - make it a float and move on
-							value, _ = strconv.ParseFloat(parts[1], 64)
-						} else {
-							//timer - find the right index
-							timerComponents := strings.Split(parts[1], "/")
-							value, _ = strconv.ParseFloat(timerComponents[headers[operation]], 64)
+				if err == nil {
+					reader := bufio.NewReader(file)
+					linesRead := 0
+					for {
+						line, err := reader.ReadString('\n')
+						linesRead += 1
+						if err != nil && err != io.EOF {
+							panic(err)
 						}
-
-						d := Datapoint{ts, value}
-						l := len(values)
-						if l+1 > cap(values) { // reallocate
-							newSlice := make([]Datapoint, (l+1)*2)
-							copy(newSlice, values)
-							values = newSlice
+						if err != nil && err == io.EOF {
+							break
 						}
-						values = values[0 : l+1]
-						values[l] = d
+						if linesRead == 1 && version == "2" {
+							continue
+						} //skip the header in v2 files
+
+						parts := strings.Split(strings.TrimSpace(line), " ")
+						ts, _ := strconv.ParseFloat(parts[0], 64)
+						if ts >= startTs && ts <= endTs {
+							value := 0.0
+							if m, _ := regexp.MatchString("^counters|^gauges", metric); m {
+								//counter or gauge - make it a float and move on
+								value, _ = strconv.ParseFloat(parts[1], 64)
+							} else {
+								//timer - find the right index
+								timerComponents := strings.Split(parts[1], "/")
+								value, _ = strconv.ParseFloat(timerComponents[headers[operation]], 64)
+							}
+
+							d := Datapoint{ts, value}
+							l := len(values)
+							if l+1 > cap(values) { // reallocate
+								newSlice := make([]Datapoint, (l+1)*2)
+								copy(newSlice, values)
+								values = newSlice
+							}
+							values = values[0 : l+1]
+							values[l] = d
+						}
+						if ts > endTs {
+							break
+						}
 					}
-					if ts > endTs {
-						break
-					}
+
+					file.Close()
 				}
-
-				file.Close()
 
 				valuesJson, _ := json.Marshal(values)
 				client.Write(valuesJson)
