@@ -5,11 +5,14 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
 	"fmt"
+	"github.com/kylelemons/go-gypsy/yaml"
 	"github.com/noahhl/Go-Redis"
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -17,12 +20,25 @@ import (
 	"time"
 )
 
-//FIXME: build from config file
-const PORT = 9127
-const ROOT = "/u/statsd"
+type Datapoint struct {
+	Timestamp, Value float64
+}
+
+type Retention struct {
+	Interval, Count, Duration int64
+}
+
+type Config struct {
+	port, root string
+	retentions []Retention
+}
+
+var config Config
 
 func main() {
-	server, err := net.Listen("tcp", ":"+strconv.Itoa(PORT))
+
+	loadConfig()
+	server, err := net.Listen("tcp", ":"+config.port)
 	if server == nil {
 		panic(err)
 	}
@@ -30,6 +46,33 @@ func main() {
 	for {
 		go handleConn(<-conns)
 	}
+}
+
+func loadConfig() {
+	configPath := flag.String("config", "./config.yml", "config file path")
+	port := flag.String("port", "default", "port to bind to")
+	flag.Parse()
+
+	absolutePath, _ := filepath.Abs(*configPath)
+	c, err := yaml.ReadFile(absolutePath)
+	if err != nil {
+		panic(err)
+	}
+	root, _ := c.Get("root")
+	if *port == "default" {
+		*port, _ = c.Get("port")
+	}
+	numRetentions, _ := c.Count("retentions")
+	retentions := make([]Retention, numRetentions)
+	for i := 0; i < numRetentions; i++ {
+		retention, _ := c.Get("retentions[" + strconv.Itoa(i) + "]")
+		parts := strings.Split(retention, " ")
+		d, _ := strconv.ParseInt(parts[0], 0, 64)
+		n, _ := strconv.ParseInt(parts[1], 0, 64)
+		retentions[i] = Retention{d, n, d * n}
+	}
+	config = Config{*port, root, retentions}
+	fmt.Printf("Starting on port %v, root dir %v\n", config.port, config.root)
 }
 
 func clientConns(listener net.Listener) chan net.Conn {
@@ -48,14 +91,6 @@ func clientConns(listener net.Listener) chan net.Conn {
 		}
 	}()
 	return ch
-}
-
-type Datapoint struct {
-	Timestamp, Value float64
-}
-
-type Retention struct {
-	Interval, Count, Duration int64
 }
 
 func createDatapoint(rawTs string, rawValue string, operation string, metric string, version string) Datapoint {
@@ -87,9 +122,6 @@ func handleConn(client net.Conn) {
 	b := bufio.NewReader(client)
 	spec := redis.DefaultSpec()
 	redis, redisErr := redis.NewSynchClientWithSpec(spec)
-
-	//FIXME: build from config file
-	retentions := []Retention{Retention{10, 360, 10 * 360}, Retention{60, 10080, 60 * 10080}, Retention{600, 52594, 600 * 52594}}
 
 	if redisErr != nil {
 		fmt.Printf("Failed to create the client: %v \n", redisErr)
@@ -141,7 +173,7 @@ func handleConn(client net.Conn) {
 			endTs, _ := strconv.ParseFloat(parts[3], 64)
 
 			//Redis retention
-			if delta < retentions[0].Duration {
+			if delta < config.retentions[0].Duration {
 
 				v, redisErr := redis.Zrangebyscore(metric, startTs, endTs) //metric, start, end
 				if redisErr == nil {
@@ -155,7 +187,7 @@ func handleConn(client net.Conn) {
 				}
 			} else {
 				//Reading from disk
-				retention := retentions[sort.Search(len(retentions), func(i int) bool { return i > 0 && retentions[i].Duration > delta })]
+				retention := config.retentions[sort.Search(len(config.retentions), func(i int) bool { return i > 0 && config.retentions[i].Duration > delta })]
 				if m, _ := regexp.MatchString("^timers", metric); m {
 					if version == "2" {
 						metric = metric + ":" + strconv.FormatInt(retention.Interval, 10) + ":2"
@@ -168,7 +200,7 @@ func handleConn(client net.Conn) {
 				h := md5.New()
 				io.WriteString(h, metric)
 				metricHash := hex.EncodeToString(h.Sum([]byte{}))
-				filePath := ROOT + "/" + metricHash[0:2] + "/" + metricHash[2:4] + "/" + metricHash
+				filePath := config.root + "/" + metricHash[0:2] + "/" + metricHash[2:4] + "/" + metricHash
 				file, err := os.Open(filePath)
 				values := make([]Datapoint, 0)
 				if err == nil {
