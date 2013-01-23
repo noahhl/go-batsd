@@ -6,10 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/noahhl/Go-Redis"
 	"io"
 	"net"
 	"os"
-	"redis"
 	"regexp"
 	"sort"
 	"strconv"
@@ -17,6 +17,7 @@ import (
 	"time"
 )
 
+//FIXME: build from config file
 const PORT = 9127
 const ROOT = "/u/statsd"
 
@@ -57,6 +58,31 @@ type Retention struct {
 	Interval, Count, Duration int64
 }
 
+func createDatapoint(rawTs string, rawValue string, operation string, metric string, version string) Datapoint {
+
+	headers := map[string]int{"count": 0, "min": 1, "max": 2, "median": 3, "mean": 4,
+		"stddev": 5, "percentile_90": 6, "percentile_95": 7, "percentile_99": 8,
+		"upper_90": 6, "upper_95": 7, "upper_99": 8}
+	ts, _ := strconv.ParseFloat(rawTs, 64)
+	value := 0.0
+	if m, _ := regexp.MatchString("^counters|^gauges", metric); m {
+		//counter or gauge - make it a float and move on
+		value, _ = strconv.ParseFloat(rawValue, 64)
+	} else {
+		//timer - find the right index
+		timerComponents := strings.Split(rawValue, "/")
+		value, _ = strconv.ParseFloat(timerComponents[headers[operation]], 64)
+	}
+	d := Datapoint{ts, value}
+	return d
+}
+
+func serializeDatapoints(datapoints []Datapoint) []byte {
+
+	valuesJson, _ := json.Marshal(datapoints)
+	return valuesJson
+}
+
 func handleConn(client net.Conn) {
 	b := bufio.NewReader(client)
 	spec := redis.DefaultSpec()
@@ -64,10 +90,6 @@ func handleConn(client net.Conn) {
 
 	//FIXME: build from config file
 	retentions := []Retention{Retention{10, 360, 10 * 360}, Retention{60, 10080, 60 * 10080}, Retention{600, 52594, 600 * 52594}}
-
-	headers := map[string]int{"count": 0, "min": 1, "max": 2, "median": 3, "mean": 4,
-		"stddev": 5, "percentile_90": 6, "percentile_95": 7, "percentile_99": 8,
-		"upper_90": 6, "upper_95": 7, "upper_99": 8}
 
 	if redisErr != nil {
 		fmt.Printf("Failed to create the client: %v \n", redisErr)
@@ -126,21 +148,9 @@ func handleConn(client net.Conn) {
 					values := make([]Datapoint, len(v))
 					for i := 0; i < len(v); i++ {
 						parts := strings.Split(string(v[i]), "<X>")
-						ts, _ := strconv.ParseFloat(parts[0], 64)
-						value := 0.0
-						if m, _ := regexp.MatchString("^counters|^gauges", metric); m {
-							//counter or gauge - make it a float and move on
-							value, _ = strconv.ParseFloat(parts[1], 64)
-						} else {
-							//timer - find the right index
-							timerComponents := strings.Split(parts[1], "/")
-							value, _ = strconv.ParseFloat(timerComponents[headers[operation]], 64)
-						}
-						d := Datapoint{ts, value}
-						values[i] = d
+						values[i] = createDatapoint(parts[0], parts[1], operation, metric, version)
 					}
-					valuesJson, _ := json.Marshal(values)
-					client.Write(valuesJson)
+					client.Write(serializeDatapoints(values))
 					client.Write([]byte("\n"))
 				}
 			} else {
@@ -173,24 +183,14 @@ func handleConn(client net.Conn) {
 						if err != nil && err == io.EOF {
 							break
 						}
+						//skip the header in v2 files
 						if linesRead == 1 && version == "2" {
 							continue
-						} //skip the header in v2 files
+						}
 
 						parts := strings.Split(strings.TrimSpace(line), " ")
 						ts, _ := strconv.ParseFloat(parts[0], 64)
 						if ts >= startTs && ts <= endTs {
-							value := 0.0
-							if m, _ := regexp.MatchString("^counters|^gauges", metric); m {
-								//counter or gauge - make it a float and move on
-								value, _ = strconv.ParseFloat(parts[1], 64)
-							} else {
-								//timer - find the right index
-								timerComponents := strings.Split(parts[1], "/")
-								value, _ = strconv.ParseFloat(timerComponents[headers[operation]], 64)
-							}
-
-							d := Datapoint{ts, value}
 							l := len(values)
 							if l+1 > cap(values) { // reallocate
 								newSlice := make([]Datapoint, (l+1)*2)
@@ -198,7 +198,7 @@ func handleConn(client net.Conn) {
 								values = newSlice
 							}
 							values = values[0 : l+1]
-							values[l] = d
+							values[l] = createDatapoint(parts[0], parts[1], operation, metric, version)
 						}
 						if ts > endTs {
 							break
@@ -208,8 +208,7 @@ func handleConn(client net.Conn) {
 					file.Close()
 				}
 
-				valuesJson, _ := json.Marshal(values)
-				client.Write(valuesJson)
+				client.Write(serializeDatapoints(values))
 				client.Write([]byte("\n"))
 			}
 
