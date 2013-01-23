@@ -106,8 +106,8 @@ func handleConn(client net.Conn) {
 			}
 
 			now := time.Now().Unix()
-			begin_time, _ := strconv.ParseInt(parts[2], 0, 64)
-			delta := now - begin_time
+			beginTime, _ := strconv.ParseInt(parts[2], 0, 64)
+			delta := now - beginTime
 			metric := parts[1]
 			operation := ""
 			if m, _ := regexp.MatchString("^counters|^gauges", metric); !m {
@@ -115,13 +115,13 @@ func handleConn(client net.Conn) {
 				metric = strings.Replace(metric, ":"+operation, "", -1)
 			}
 
-			start_ts, _ := strconv.ParseFloat(parts[2], 64)
-			end_ts, _ := strconv.ParseFloat(parts[3], 64)
+			startTs, _ := strconv.ParseFloat(parts[2], 64)
+			endTs, _ := strconv.ParseFloat(parts[3], 64)
 
 			//Redis retention
 			if delta < retentions[0].Duration {
 
-				v, redisErr := redis.Zrangebyscore(metric, start_ts, end_ts) //metric, start, end
+				v, redisErr := redis.Zrangebyscore(metric, startTs, endTs) //metric, start, end
 				if redisErr == nil {
 					values := make([]Datapoint, len(v))
 					for i := 0; i < len(v); i++ {
@@ -133,8 +133,8 @@ func handleConn(client net.Conn) {
 							value, _ = strconv.ParseFloat(parts[1], 64)
 						} else {
 							//timer - find the right index
-							timer_components := strings.Split(parts[1], "/")
-							value, _ = strconv.ParseFloat(timer_components[headers[operation]], 64)
+							timerComponents := strings.Split(parts[1], "/")
+							value, _ = strconv.ParseFloat(timerComponents[headers[operation]], 64)
 						}
 						d := Datapoint{ts, value}
 						values[i] = d
@@ -157,9 +157,9 @@ func handleConn(client net.Conn) {
 				}
 				h := md5.New()
 				io.WriteString(h, metric)
-				metric_hash := hex.EncodeToString(h.Sum([]byte{}))
-				file_path := ROOT + "/" + metric_hash[0:2] + "/" + metric_hash[2:4] + "/" + metric_hash
-				file, err := os.Open(file_path)
+				metricHash := hex.EncodeToString(h.Sum([]byte{}))
+				filePath := ROOT + "/" + metricHash[0:2] + "/" + metricHash[2:4] + "/" + metricHash
+				file, err := os.Open(filePath)
 				if err != nil {
 					panic(err)
 				}
@@ -181,15 +181,15 @@ func handleConn(client net.Conn) {
 
 					parts := strings.Split(strings.TrimSpace(line), " ")
 					ts, _ := strconv.ParseFloat(parts[0], 64)
-					if ts >= start_ts && ts <= end_ts {
+					if ts >= startTs && ts <= endTs {
 						value := 0.0
 						if m, _ := regexp.MatchString("^counters|^gauges", metric); m {
 							//counter or gauge - make it a float and move on
 							value, _ = strconv.ParseFloat(parts[1], 64)
 						} else {
 							//timer - find the right index
-							timer_components := strings.Split(parts[1], "/")
-							value, _ = strconv.ParseFloat(timer_components[headers[operation]], 64)
+							timerComponents := strings.Split(parts[1], "/")
+							value, _ = strconv.ParseFloat(timerComponents[headers[operation]], 64)
 						}
 
 						d := Datapoint{ts, value}
@@ -202,7 +202,7 @@ func handleConn(client net.Conn) {
 						values = values[0 : l+1]
 						values[l] = d
 					}
-					if ts > end_ts {
+					if ts > endTs {
 						break
 					}
 				}
