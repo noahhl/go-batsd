@@ -1,18 +1,16 @@
 package main
 
 import (
+	"../shared"
 	"bufio"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
-	"flag"
 	"fmt"
-	"github.com/kylelemons/go-gypsy/yaml"
 	"github.com/noahhl/Go-Redis"
 	"io"
 	"net"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -24,23 +22,10 @@ type Datapoint struct {
 	Timestamp, Value float64
 }
 
-type Retention struct {
-	Interval, Count, Duration int64
-}
-
-type Config struct {
-	port, root string
-	retentions []Retention
-	redisHost  string
-	redisPort  int
-}
-
-var config Config
-
 func main() {
 
-	loadConfig()
-	server, err := net.Listen("tcp", ":"+config.port)
+	shared.LoadConfig()
+	server, err := net.Listen("tcp", ":"+shared.Config.Port)
 	if err != nil {
 		panic(err)
 	}
@@ -48,36 +33,6 @@ func main() {
 	for {
 		go handleConn(<-conns)
 	}
-}
-
-func loadConfig() {
-	configPath := flag.String("config", "./config.yml", "config file path")
-	port := flag.String("port", "default", "port to bind to")
-	flag.Parse()
-
-	absolutePath, _ := filepath.Abs(*configPath)
-	c, err := yaml.ReadFile(absolutePath)
-	if err != nil {
-		panic(err)
-	}
-	root, _ := c.Get("root")
-	if *port == "default" {
-		*port, _ = c.Get("port")
-	}
-	numRetentions, _ := c.Count("retentions")
-	retentions := make([]Retention, numRetentions)
-	for i := 0; i < numRetentions; i++ {
-		retention, _ := c.Get("retentions[" + strconv.Itoa(i) + "]")
-		parts := strings.Split(retention, " ")
-		d, _ := strconv.ParseInt(parts[0], 0, 64)
-		n, _ := strconv.ParseInt(parts[1], 0, 64)
-		retentions[i] = Retention{d, n, d * n}
-	}
-	p, _ := c.Get("redis.port")
-	redisPort, _ := strconv.Atoi(p)
-	redisHost, _ := c.Get("redis.host")
-	config = Config{*port, root, retentions, redisHost, redisPort}
-	fmt.Printf("Starting on port %v, root dir %v\n", config.port, config.root)
 }
 
 func clientConns(listener net.Listener) chan net.Conn {
@@ -125,7 +80,7 @@ func serializeDatapoints(datapoints []Datapoint) []byte {
 
 func handleConn(client net.Conn) {
 	b := bufio.NewReader(client)
-	spec := redis.DefaultSpec().Host(config.redisHost).Port(config.redisPort)
+	spec := redis.DefaultSpec().Host(shared.Config.RedisHost).Port(shared.Config.RedisPort)
 	redis, redisErr := redis.NewSynchClientWithSpec(spec)
 
 	if redisErr != nil {
@@ -180,7 +135,7 @@ func handleConn(client net.Conn) {
 			endTs, _ := strconv.ParseFloat(parts[3], 64)
 
 			//Redis retention
-			if delta < config.retentions[0].Duration {
+			if delta < shared.Config.Retentions[0].Duration {
 
 				v, redisErr := redis.Zrangebyscore(metric, startTs, endTs) //metric, start, end
 				if redisErr == nil {
@@ -194,7 +149,7 @@ func handleConn(client net.Conn) {
 				}
 			} else {
 				//Reading from disk
-				retention := config.retentions[sort.Search(len(config.retentions), func(i int) bool { return i > 0 && config.retentions[i].Duration > delta })]
+				retention := shared.Config.Retentions[sort.Search(len(shared.Config.Retentions), func(i int) bool { return i > 0 && shared.Config.Retentions[i].Duration > delta })]
 				if m, _ := regexp.MatchString("^timers", metric); m {
 					if version == "2" {
 						metric = metric + ":" + strconv.FormatInt(retention.Interval, 10) + ":2"
@@ -207,7 +162,7 @@ func handleConn(client net.Conn) {
 				h := md5.New()
 				io.WriteString(h, metric)
 				metricHash := hex.EncodeToString(h.Sum([]byte{}))
-				filePath := config.root + "/" + metricHash[0:2] + "/" + metricHash[2:4] + "/" + metricHash
+				filePath := shared.Config.Root + "/" + metricHash[0:2] + "/" + metricHash[2:4] + "/" + metricHash
 				file, err := os.Open(filePath)
 				values := make([]Datapoint, 0)
 				if err == nil {

@@ -1,8 +1,7 @@
-
 all: bin/server
 
-bin/server: server/main.go
-	go build -o bin/go-batsd-server server/main.go
+bin/server: server/server.go
+	GOPATH=`pwd`/..:${GOPATH} go build -o bin/go-batsd-server server/server.go
 
 clean:
 	rm -f bin/*
