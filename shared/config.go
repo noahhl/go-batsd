@@ -21,11 +21,13 @@ type Configuration struct {
 }
 
 var Config Configuration
+var ProfileCPU bool
 
 func LoadConfig() {
 	configPath := flag.String("config", "./config.yml", "config file path")
 	port := flag.String("port", "default", "port to bind to")
 	duration := flag.Int64("duration", 0, "duration to operation on")
+	cpuprofile := flag.Bool("cpuprofile", false, "write cpu profile to file")
 	flag.Parse()
 
 	absolutePath, _ := filepath.Abs(*configPath)
@@ -50,4 +52,6 @@ func LoadConfig() {
 	redisPort, _ := strconv.Atoi(p)
 	redisHost, _ := c.Get("redis.host")
 	Config = Configuration{*port, root, retentions, redisHost, redisPort, *duration}
+
+	ProfileCPU = *cpuprofile
 }
