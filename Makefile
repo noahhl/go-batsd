@@ -1,7 +1,10 @@
-all: bin/server
+all: bin/server bin/truncator
 
 bin/server: server/server.go
-	GOPATH=`pwd`/..:${GOPATH} go build -o bin/go-batsd-server server/server.go
+	go build -o bin/go-batsd-server server/server.go
+
+bin/truncator: truncator/truncator.go
+	go build -o bin/go-batsd-truncator truncator/truncator.go
 
 clean:
 	rm -f bin/*

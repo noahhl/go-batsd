@@ -3,8 +3,6 @@ package main
 import (
 	"../shared"
 	"bufio"
-	"crypto/md5"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/noahhl/Go-Redis"
@@ -25,6 +23,7 @@ type Datapoint struct {
 func main() {
 
 	shared.LoadConfig()
+	fmt.Printf("Starting on port %v, root dir %v\n", shared.Config.Port, shared.Config.Root)
 	server, err := net.Listen("tcp", ":"+shared.Config.Port)
 	if err != nil {
 		panic(err)
@@ -159,10 +158,7 @@ func handleConn(client net.Conn) {
 				} else {
 					metric = metric + ":" + strconv.FormatInt(retention.Interval, 10)
 				}
-				h := md5.New()
-				io.WriteString(h, metric)
-				metricHash := hex.EncodeToString(h.Sum([]byte{}))
-				filePath := shared.Config.Root + "/" + metricHash[0:2] + "/" + metricHash[2:4] + "/" + metricHash
+				filePath := shared.CalculateFilename(metric, shared.Config.Root)
 				file, err := os.Open(filePath)
 				values := make([]Datapoint, 0)
 				if err == nil {

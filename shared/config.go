@@ -2,7 +2,6 @@ package shared
 
 import (
 	"flag"
-	"fmt"
 	"github.com/kylelemons/go-gypsy/yaml"
 	"path/filepath"
 	"strconv"
@@ -14,10 +13,11 @@ type Retention struct {
 }
 
 type Configuration struct {
-	Port, Root string
-	Retentions []Retention
-	RedisHost  string
-	RedisPort  int
+	Port, Root     string
+	Retentions     []Retention
+	RedisHost      string
+	RedisPort      int
+	TargetInterval int64
 }
 
 var Config Configuration
@@ -25,6 +25,7 @@ var Config Configuration
 func LoadConfig() {
 	configPath := flag.String("config", "./config.yml", "config file path")
 	port := flag.String("port", "default", "port to bind to")
+	duration := flag.Int64("duration", 0, "duration to operation on")
 	flag.Parse()
 
 	absolutePath, _ := filepath.Abs(*configPath)
@@ -48,6 +49,5 @@ func LoadConfig() {
 	p, _ := c.Get("redis.port")
 	redisPort, _ := strconv.Atoi(p)
 	redisHost, _ := c.Get("redis.host")
-	Config = Configuration{*port, root, retentions, redisHost, redisPort}
-	fmt.Printf("Starting on port %v, root dir %v\n", Config.Port, Config.Root)
+	Config = Configuration{*port, root, retentions, redisHost, redisPort, *duration}
 }
