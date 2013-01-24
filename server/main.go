@@ -31,6 +31,8 @@ type Retention struct {
 type Config struct {
 	port, root string
 	retentions []Retention
+	redisHost  string
+	redisPort  int
 }
 
 var config Config
@@ -71,7 +73,10 @@ func loadConfig() {
 		n, _ := strconv.ParseInt(parts[1], 0, 64)
 		retentions[i] = Retention{d, n, d * n}
 	}
-	config = Config{*port, root, retentions}
+	p, _ := c.Get("redis.port")
+	redisPort, _ := strconv.Atoi(p)
+	redisHost, _ := c.Get("redis.host")
+	config = Config{*port, root, retentions, redisHost, redisPort}
 	fmt.Printf("Starting on port %v, root dir %v\n", config.port, config.root)
 }
 
@@ -120,11 +125,13 @@ func serializeDatapoints(datapoints []Datapoint) []byte {
 
 func handleConn(client net.Conn) {
 	b := bufio.NewReader(client)
-	spec := redis.DefaultSpec()
+	spec := redis.DefaultSpec().Host(config.redisHost).Port(config.redisPort)
 	redis, redisErr := redis.NewSynchClientWithSpec(spec)
 
 	if redisErr != nil {
-		fmt.Printf("Failed to create the client: %v \n", redisErr)
+		fmt.Printf("Failed to create the Redis client: %v \n", redisErr)
+		client.Close()
+		return
 	}
 
 	for {
