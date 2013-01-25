@@ -134,7 +134,7 @@ func handleConn(client net.Conn) {
 			endTs, _ := strconv.ParseFloat(parts[3], 64)
 
 			//Redis retention
-			if delta < shared.Config.Retentions[0].Duration {
+			if m, _ := regexp.MatchString("^gauges", metric); !m && delta < shared.Config.Retentions[0].Duration {
 
 				v, redisErr := redis.Zrangebyscore(metric, startTs, endTs) //metric, start, end
 				if redisErr == nil {
