@@ -155,7 +155,7 @@ func handleConn(client net.Conn) {
 					} else {
 						metric = metric + ":" + operation + ":" + strconv.FormatInt(retention.Interval, 10)
 					}
-				} else {
+				} else if m, _ := regexp.MatchString("^counters", metric); m {
 					metric = metric + ":" + strconv.FormatInt(retention.Interval, 10)
 				}
 				filePath := shared.CalculateFilename(metric, shared.Config.Root)
