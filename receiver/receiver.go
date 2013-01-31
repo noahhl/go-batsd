@@ -7,9 +7,12 @@ import (
 	"net"
 	"os"
 	"regexp"
+	"runtime"
 	"strconv"
 	"syscall"
 	"time"
+
+	"github.com/noahhl/Go-Redis"
 )
 
 type Datapoint struct {
@@ -29,12 +32,7 @@ func main() {
 	gaugeChannel = make(chan Datapoint)
 
 	fmt.Printf("Starting on port %v\n", shared.Config.Port)
-
-	server, err := net.ListenPacket("udp", ":"+shared.Config.Port)
-	defer server.Close()
-	if err != nil {
-		panic(err)
-	}
+	runtime.GOMAXPROCS(16)
 
 	destinationAddr, err := net.ResolveUDPAddr("udp", ":8225")
 	if err != nil {
@@ -45,7 +43,26 @@ func main() {
 		panic(err)
 	}
 
-	go HandleGauge(gaugeChannel)
+	datapointChannel := saveNewDatapoints()
+	go processGauges(gaugeChannel, datapointChannel)
+
+	go bindUDP()
+	go bindTCP()
+
+	c := make(chan int)
+	for {
+		<-c
+	}
+
+}
+
+func bindUDP() {
+
+	server, err := net.ListenPacket("udp", ":"+shared.Config.Port)
+	defer server.Close()
+	if err != nil {
+		panic(err)
+	}
 
 	buffer := make([]byte, readLen)
 	for {
@@ -53,13 +70,48 @@ func main() {
 		if err != nil {
 			continue
 		}
-		ProcessIncomingMessage(string(buffer[0:n]))
+		processIncomingMessage(string(buffer[0:n]))
 	}
-
 }
 
-func ProcessIncomingMessage(message string) {
-	d := ParseDatapoint(message)
+func bindTCP() {
+
+	server, err := net.Listen("tcp", ":"+shared.Config.Port)
+	if err != nil {
+		panic(err)
+	}
+	conns := clientTCPConns(server)
+	for {
+		go func(client net.Conn) {
+			b := bufio.NewReader(client)
+			for {
+				line, err := b.ReadBytes('\n')
+				if err != nil {
+					return
+				}
+				processIncomingMessage(string(line))
+			}
+		}(<-conns)
+	}
+}
+
+func clientTCPConns(listener net.Listener) chan net.Conn {
+	ch := make(chan net.Conn)
+	go func() {
+		for {
+			client, err := listener.Accept()
+			if client == nil {
+				fmt.Printf("couldn't accept: %v", err)
+				continue
+			}
+			ch <- client
+		}
+	}()
+	return ch
+}
+
+func processIncomingMessage(message string) {
+	d := parseDatapoint(message)
 	if d.Datatype == "g" {
 		gaugeChannel <- d
 	} else if d.Datatype == "c" {
@@ -70,7 +122,7 @@ func ProcessIncomingMessage(message string) {
 
 }
 
-func ParseDatapoint(metric string) Datapoint {
+func parseDatapoint(metric string) Datapoint {
 	metricRegex, err := regexp.Compile("(.*):([0-9|\\.]+)\\|(c|g|ms)")
 	if err != nil {
 		panic(err)
@@ -84,9 +136,24 @@ func ParseDatapoint(metric string) Datapoint {
 	return d
 }
 
-func HandleGauge(ch chan Datapoint) {
+func saveNewDatapoints() chan string {
+	c := make(chan string)
+
+	go func(ch chan string) {
+		spec := redis.DefaultSpec().Host(shared.Config.RedisHost).Port(shared.Config.RedisPort)
+		redis, _ := redis.NewSynchClientWithSpec(spec)
+		for {
+			d := <-ch
+			redis.Sadd("datapoints", []byte(d))
+		}
+	}(c)
+
+	return c
+}
+
+func processGauges(gauges chan Datapoint, datapoints chan string) {
 	for {
-		d := <-ch
+		d := <-gauges
 		//fmt.Printf("Processing gauge %v with value %v and timestamp %v \n", d.Name, d.Value, d.Timestamp)
 		filename := shared.CalculateFilename("gauges:"+d.Name, shared.Config.Root)
 
@@ -100,6 +167,7 @@ func HandleGauge(ch chan Datapoint) {
 					panic(err)
 				}
 				newFile = true
+				datapoints <- "gauges:" + d.Name
 			} else {
 				panic(err)
 			}
