@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -26,10 +27,11 @@ var gaugeChannel chan Datapoint
 var client net.Conn
 
 const readLen = 256
+const channelBufferSize = 10000
 
 func main() {
 	shared.LoadConfig()
-	gaugeChannel = make(chan Datapoint)
+	gaugeChannel = make(chan Datapoint, channelBufferSize)
 
 	fmt.Printf("Starting on port %v\n", shared.Config.Port)
 	runtime.GOMAXPROCS(16)
@@ -125,7 +127,7 @@ func processIncomingMessage(message string) {
 func parseDatapoint(metric string) Datapoint {
 	metricRegex, err := regexp.Compile("(.*):([0-9|\\.]+)\\|(c|g|ms)")
 	if err != nil {
-		panic(err)
+		fmt.Printf("%v", err)
 	}
 	matches := metricRegex.FindAllStringSubmatch(metric, -1)
 	d := Datapoint{}
@@ -137,7 +139,7 @@ func parseDatapoint(metric string) Datapoint {
 }
 
 func saveNewDatapoints() chan string {
-	c := make(chan string)
+	c := make(chan string, channelBufferSize)
 
 	go func(ch chan string) {
 		spec := redis.DefaultSpec().Host(shared.Config.RedisHost).Port(shared.Config.RedisPort)
@@ -162,9 +164,15 @@ func processGauges(gauges chan Datapoint, datapoints chan string) {
 		if err != nil {
 			if e, ok := err.(*os.PathError); ok && e.Err == syscall.ENOENT {
 				fmt.Printf("Creating %v\n", filename)
+				//Make containing directories if they don't exist
+				err = os.MkdirAll(filepath.Dir(filename), 0755)
+				if err != nil {
+					fmt.Printf("%v", err)
+				}
+
 				file, err = os.Create(filename)
 				if err != nil {
-					panic(err)
+					fmt.Printf("%v", err)
 				}
 				newFile = true
 				datapoints <- "gauges:" + d.Name
@@ -172,13 +180,15 @@ func processGauges(gauges chan Datapoint, datapoints chan string) {
 				panic(err)
 			}
 		}
-		writer := bufio.NewWriter(file)
-		if newFile {
-			writer.WriteString("v2 gauges:" + d.Name + "\n")
+		if file != nil {
+			writer := bufio.NewWriter(file)
+			if newFile {
+				writer.WriteString("v2 gauges:" + d.Name + "\n")
+			}
+			writer.WriteString(fmt.Sprintf("%d %v\n", d.Timestamp.Unix(), d.Value))
+			writer.Flush()
+			file.Close()
 		}
-		writer.WriteString(fmt.Sprintf("%d %v\n", d.Timestamp.Unix(), d.Value))
-		writer.Flush()
-		file.Close()
 
 	}
 }
