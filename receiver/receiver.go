@@ -23,6 +23,11 @@ type Datapoint struct {
 	Datatype  string
 }
 
+type AggregateObservation struct {
+	Name    string
+	Content string
+}
+
 var gaugeChannel chan Datapoint
 var client net.Conn
 
@@ -46,7 +51,8 @@ func main() {
 	}
 
 	datapointChannel := saveNewDatapoints()
-	go processGauges(gaugeChannel, datapointChannel)
+	appendChannel := appendToFile(datapointChannel)
+	go processGauges(gaugeChannel, appendChannel)
 
 	go bindUDP()
 	go bindTCP()
@@ -153,42 +159,54 @@ func saveNewDatapoints() chan string {
 	return c
 }
 
-func processGauges(gauges chan Datapoint, datapoints chan string) {
+func appendToFile(datapoints chan string) chan AggregateObservation {
+	c := make(chan AggregateObservation, channelBufferSize)
+
+	go func(ch chan AggregateObservation, datapoints chan string) {
+		for {
+			observation := <-ch
+			filename := shared.CalculateFilename(observation.Name, shared.Config.Root)
+
+			file, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0600)
+			newFile := false
+			if err != nil {
+				if e, ok := err.(*os.PathError); ok && e.Err == syscall.ENOENT {
+					fmt.Printf("Creating %v\n", filename)
+					//Make containing directories if they don't exist
+					err = os.MkdirAll(filepath.Dir(filename), 0755)
+					if err != nil {
+						fmt.Printf("%v", err)
+					}
+
+					file, err = os.Create(filename)
+					if err != nil {
+						fmt.Printf("%v", err)
+					}
+					newFile = true
+					datapoints <- observation.Name
+				} else {
+					panic(err)
+				}
+			}
+			if file != nil {
+				writer := bufio.NewWriter(file)
+				if newFile {
+					writer.WriteString("v2 " + observation.Name + "\n")
+				}
+				writer.WriteString(observation.Content)
+				writer.Flush()
+				file.Close()
+			}
+		}
+	}(c, datapoints)
+	return c
+}
+
+func processGauges(gauges chan Datapoint, appendChannel chan AggregateObservation) {
 	for {
 		d := <-gauges
 		//fmt.Printf("Processing gauge %v with value %v and timestamp %v \n", d.Name, d.Value, d.Timestamp)
-		filename := shared.CalculateFilename("gauges:"+d.Name, shared.Config.Root)
-
-		file, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0600)
-		newFile := false
-		if err != nil {
-			if e, ok := err.(*os.PathError); ok && e.Err == syscall.ENOENT {
-				fmt.Printf("Creating %v\n", filename)
-				//Make containing directories if they don't exist
-				err = os.MkdirAll(filepath.Dir(filename), 0755)
-				if err != nil {
-					fmt.Printf("%v", err)
-				}
-
-				file, err = os.Create(filename)
-				if err != nil {
-					fmt.Printf("%v", err)
-				}
-				newFile = true
-				datapoints <- "gauges:" + d.Name
-			} else {
-				panic(err)
-			}
-		}
-		if file != nil {
-			writer := bufio.NewWriter(file)
-			if newFile {
-				writer.WriteString("v2 gauges:" + d.Name + "\n")
-			}
-			writer.WriteString(fmt.Sprintf("%d %v\n", d.Timestamp.Unix(), d.Value))
-			writer.Flush()
-			file.Close()
-		}
-
+		observation := AggregateObservation{"gauges:" + d.Name, fmt.Sprintf("%d %v\n", d.Timestamp.Unix(), d.Value)}
+		appendChannel <- observation
 	}
 }
