@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/noahhl/Go-Redis"
+	"github.com/reusee/mmh3"
 )
 
 type Datapoint struct {
@@ -24,35 +25,43 @@ type Datapoint struct {
 }
 
 type AggregateObservation struct {
-	Name    string
-	Content string
+	Name      string
+	Content   string
+	Timestamp int64
 }
 
 var gaugeChannel chan Datapoint
-var client net.Conn
+var counterChannel chan Datapoint
+var timerChannel chan Datapoint
+var diskAppendChannel chan AggregateObservation
+var redisAppendChannel chan AggregateObservation
+var timerHeartbeat chan int
+var counterHeartbeat chan int
 
 const readLen = 256
 const channelBufferSize = 10000
+const heartbeatInterval = 1
 
 func main() {
 	shared.LoadConfig()
 	gaugeChannel = make(chan Datapoint, channelBufferSize)
+	counterChannel = make(chan Datapoint, channelBufferSize)
+	timerChannel = make(chan Datapoint, channelBufferSize)
+	counterHeartbeat = make(chan int)
+	timerHeartbeat = make(chan int)
 
 	fmt.Printf("Starting on port %v\n", shared.Config.Port)
 	runtime.GOMAXPROCS(16)
 
-	destinationAddr, err := net.ResolveUDPAddr("udp", ":8225")
-	if err != nil {
-		panic(err)
-	}
-	client, err = net.DialUDP("udp", nil, destinationAddr)
-	if err != nil {
-		panic(err)
-	}
-
 	datapointChannel := saveNewDatapoints()
-	appendChannel := appendToFile(datapointChannel)
-	go processGauges(gaugeChannel, appendChannel)
+	diskAppendChannel = appendToFile(datapointChannel)
+	redisAppendChannel = addToRedisZset()
+
+	go runHeartbeat()
+
+	go processGauges(gaugeChannel)
+	go processCounters(counterChannel)
+	go processTimers(timerChannel)
 
 	go bindUDP()
 	go bindTCP()
@@ -62,6 +71,17 @@ func main() {
 		<-c
 	}
 
+}
+
+func runHeartbeat() {
+	ticker := time.NewTicker(1 * time.Second)
+	for {
+		select {
+		case <-ticker.C:
+			counterHeartbeat <- 1
+			timerHeartbeat <- 1
+		}
+	}
 }
 
 func bindUDP() {
@@ -123,9 +143,9 @@ func processIncomingMessage(message string) {
 	if d.Datatype == "g" {
 		gaugeChannel <- d
 	} else if d.Datatype == "c" {
-		client.Write([]byte(message))
+		counterChannel <- d
 	} else if d.Datatype == "ms" {
-		client.Write([]byte(message))
+		timerChannel <- d
 	}
 
 }
@@ -202,11 +222,98 @@ func appendToFile(datapoints chan string) chan AggregateObservation {
 	return c
 }
 
-func processGauges(gauges chan Datapoint, appendChannel chan AggregateObservation) {
+func addToRedisZset() chan AggregateObservation {
+	c := make(chan AggregateObservation, channelBufferSize)
+	go func(ch chan AggregateObservation) {
+		spec := redis.DefaultSpec().Host(shared.Config.RedisHost).Port(shared.Config.RedisPort)
+		redis, _ := redis.NewSynchClientWithSpec(spec)
+		for {
+			observation := <-ch
+			redis.Zadd(observation.Name, float64(observation.Timestamp), []byte(observation.Content))
+		}
+	}(c)
+
+	return c
+
+}
+
+func processGauges(gauges chan Datapoint) {
 	for {
 		d := <-gauges
 		//fmt.Printf("Processing gauge %v with value %v and timestamp %v \n", d.Name, d.Value, d.Timestamp)
-		observation := AggregateObservation{"gauges:" + d.Name, fmt.Sprintf("%d %v\n", d.Timestamp.Unix(), d.Value)}
-		appendChannel <- observation
+		observation := AggregateObservation{"gauges:" + d.Name, fmt.Sprintf("%d %v\n", d.Timestamp.Unix(), d.Value), 0}
+		diskAppendChannel <- observation
+	}
+}
+
+type Counter struct {
+	Key   string
+	Value float64
+}
+
+func processCounters(ch chan Datapoint) {
+	currentSlots := make([]int64, len(shared.Config.Retentions))
+	maxSlots := make([]int64, len(shared.Config.Retentions))
+	for i := range shared.Config.Retentions {
+		currentSlots[i] = 0
+		maxSlots[i] = shared.Config.Retentions[i].Interval / heartbeatInterval
+	}
+
+	counters := make([][]map[string]float64, len(shared.Config.Retentions))
+	for i := range counters {
+		counters[i] = make([]map[string]float64, maxSlots[i])
+		for j := range counters[i] {
+			counters[i][j] = make(map[string]float64)
+		}
+	}
+
+	for {
+		select {
+		case d := <-ch:
+			//fmt.Printf("Processing counter %v with value %v and timestamp %v \n", d.Name, d.Value, d.Timestamp)
+			for i := range shared.Config.Retentions {
+				hashSlot := int64(mmh3.Hash32([]byte(d.Name))) % maxSlots[i]
+				counters[i][hashSlot][d.Name] += d.Value
+			}
+
+		case <-counterHeartbeat:
+			for i := range currentSlots {
+				timestamp := time.Now().Unix() - (time.Now().Unix() % shared.Config.Retentions[i].Interval)
+				if i == 0 { //Store to redis
+					for key, value := range counters[i][currentSlots[i]] {
+						if value > 0 {
+							observation := AggregateObservation{"counters:" + key, fmt.Sprintf("%d<X>%v", timestamp, value), timestamp}
+							counters[i][currentSlots[i]][key] = 0
+							redisAppendChannel <- observation
+						}
+					}
+				} else { // Store to disk
+					for key, value := range counters[i][currentSlots[i]] {
+						if value > 0 {
+							observation := AggregateObservation{"counters:" + key + ":" + strconv.FormatInt(shared.Config.Retentions[i].Interval, 10), fmt.Sprintf("%d %v\n", timestamp, value), timestamp}
+							counters[i][currentSlots[i]][key] = 0
+							diskAppendChannel <- observation
+						}
+					}
+				}
+
+				//fmt.Printf("%v %v %v\n", i, currentSlots[i], counters[i][currentSlots[i]])
+
+				currentSlots[i] += 1
+				if currentSlots[i] == maxSlots[i] {
+					currentSlots[i] = 0
+				}
+			}
+		}
+	}
+}
+
+func processTimers(timers chan Datapoint) {
+	for {
+		select {
+		case <-timerHeartbeat:
+		case d := <-timers:
+			fmt.Printf("Processing timer %v with value %v and timestamp %v \n", d.Name, d.Value, d.Timestamp)
+		}
 	}
 }
