@@ -368,7 +368,7 @@ func processTimers(ch chan Datapoint) {
 							observation := AggregateObservation{"timers:" + key, fmt.Sprintf("%d<X>%v", timestamp, aggregates), timestamp}
 							redisAppendChannel <- observation
 						} else { // Store to disk
-							observation := AggregateObservation{"timers:" + key + ":" + strconv.FormatInt(shared.Config.Retentions[i].Interval, 10), fmt.Sprintf("%d %v\n", timestamp, aggregates), timestamp}
+							observation := AggregateObservation{"timers:" + key + ":" + strconv.FormatInt(shared.Config.Retentions[i].Interval, 10) + ":2", fmt.Sprintf("%d %v\n", timestamp, aggregates), timestamp}
 							diskAppendChannel <- observation
 						}
 
