@@ -279,25 +279,18 @@ func processCounters(ch chan Datapoint) {
 		case <-counterHeartbeat:
 			for i := range currentSlots {
 				timestamp := time.Now().Unix() - (time.Now().Unix() % shared.Config.Retentions[i].Interval)
-				if i == 0 { //Store to redis
-					for key, value := range counters[i][currentSlots[i]] {
-						if value > 0 {
+				for key, value := range counters[i][currentSlots[i]] {
+					if value > 0 {
+						if i == 0 { //Store to redis
 							observation := AggregateObservation{"counters:" + key, fmt.Sprintf("%d<X>%v", timestamp, value), timestamp}
-							counters[i][currentSlots[i]][key] = 0
 							redisAppendChannel <- observation
-						}
-					}
-				} else { // Store to disk
-					for key, value := range counters[i][currentSlots[i]] {
-						if value > 0 {
+						} else {
 							observation := AggregateObservation{"counters:" + key + ":" + strconv.FormatInt(shared.Config.Retentions[i].Interval, 10), fmt.Sprintf("%d %v\n", timestamp, value), timestamp}
-							counters[i][currentSlots[i]][key] = 0
 							diskAppendChannel <- observation
 						}
+						delete(counters[i][currentSlots[i]], key)
 					}
 				}
-
-				//fmt.Printf("%v %v %v\n", i, currentSlots[i], counters[i][currentSlots[i]])
 
 				currentSlots[i] += 1
 				if currentSlots[i] == maxSlots[i] {
@@ -308,12 +301,68 @@ func processCounters(ch chan Datapoint) {
 	}
 }
 
-func processTimers(timers chan Datapoint) {
+func processTimers(ch chan Datapoint) {
+
+	currentSlots := make([]int64, len(shared.Config.Retentions))
+	maxSlots := make([]int64, len(shared.Config.Retentions))
+	for i := range shared.Config.Retentions {
+		currentSlots[i] = 0
+		maxSlots[i] = shared.Config.Retentions[i].Interval / heartbeatInterval
+	}
+
+	timers := make([][]map[string][]float64, len(shared.Config.Retentions))
+	for i := range timers {
+		timers[i] = make([]map[string][]float64, maxSlots[i])
+		for j := range timers[i] {
+			timers[i][j] = make(map[string][]float64)
+		}
+	}
+
 	for {
 		select {
+		case d := <-ch:
+			//fmt.Printf("Processing timer %v with value %v and timestamp %v \n", d.Name, d.Value, d.Timestamp)
+			for i := range shared.Config.Retentions {
+				hashSlot := int64(mmh3.Hash32([]byte(d.Name))) % maxSlots[i]
+				timers[i][hashSlot][d.Name] = append(timers[i][hashSlot][d.Name], d.Value)
+			}
 		case <-timerHeartbeat:
-		case d := <-timers:
-			fmt.Printf("Processing timer %v with value %v and timestamp %v \n", d.Name, d.Value, d.Timestamp)
+			for i := range currentSlots {
+				//fmt.Printf("%v %v %v\n", i, currentSlots[i], timers[i][currentSlots[i]])
+
+				timestamp := time.Now().Unix() - (time.Now().Unix() % shared.Config.Retentions[i].Interval)
+
+				for key, value := range timers[i][currentSlots[i]] {
+					if len(value) > 0 {
+						count := len(value)
+						min := shared.Min(value)
+						max := shared.Max(value)
+						median := shared.Median(value)
+						mean := shared.Mean(value)
+						stddev := shared.Stddev(value)
+						percentile_90 := shared.Percentile(value, 0.9)
+						percentile_95 := shared.Percentile(value, 0.95)
+						percentile_99 := shared.Percentile(value, 0.99)
+
+						aggregates := fmt.Sprintf("%v/%v/%v/%v/%v/%v/%v/%v/%v", count, min, max, median, mean, stddev, percentile_90, percentile_95, percentile_99)
+						if i == 0 { //Store to redis
+							observation := AggregateObservation{"timers:" + key, fmt.Sprintf("%d<X>%v", timestamp, aggregates), timestamp}
+							redisAppendChannel <- observation
+						} else { // Store to disk
+							observation := AggregateObservation{"timers:" + key + ":" + strconv.FormatInt(shared.Config.Retentions[i].Interval, 10), fmt.Sprintf("%d %v\n", timestamp, aggregates), timestamp}
+							diskAppendChannel <- observation
+						}
+
+						delete(timers[i][currentSlots[i]], key)
+					}
+				}
+
+				currentSlots[i] += 1
+				if currentSlots[i] == maxSlots[i] {
+					currentSlots[i] = 0
+				}
+			}
+
 		}
 	}
 }
