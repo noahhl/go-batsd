@@ -7,9 +7,9 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -52,7 +52,7 @@ func main() {
 	timerHeartbeat = make(chan int)
 
 	fmt.Printf("Starting on port %v\n", shared.Config.Port)
-	runtime.GOMAXPROCS(16)
+	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	datapointChannel := saveNewDatapoints()
 	diskAppendChannel = appendToFile(datapointChannel)
@@ -70,7 +70,7 @@ func main() {
 	go processTimers(timerChannel)
 
 	go bindUDP(processingChannel)
-	go bindTCP()
+	go bindTCP(processingChannel)
 
 	c := make(chan int)
 	for {
@@ -90,7 +90,7 @@ func runHeartbeat() {
 	}
 }
 
-func bindUDP(ch chan string) {
+func bindUDP(processingChannel chan string) {
 
 	server, err := net.ListenPacket("udp", ":"+shared.Config.Port)
 	defer server.Close()
@@ -104,12 +104,14 @@ func bindUDP(ch chan string) {
 		if err != nil {
 			continue
 		}
-		//processIncomingMessage(string(buffer[0:n]))
-		ch <- string(buffer[0:n])
+		select {
+		case processingChannel <- string(buffer[0:n]):
+		default:
+		}
 	}
 }
 
-func bindTCP() {
+func bindTCP(processingChannel chan string) {
 
 	server, err := net.Listen("tcp", ":"+shared.Config.Port)
 	if err != nil {
@@ -124,7 +126,10 @@ func bindTCP() {
 				if err != nil {
 					return
 				}
-				processIncomingMessage(string(line))
+				select {
+				case processingChannel <- string(line):
+				default:
+				}
 			}
 		}(<-conns)
 	}
@@ -166,15 +171,14 @@ func processIncomingMessage(message string) {
 }
 
 func parseDatapoint(metric string) Datapoint {
-	metricRegex, err := regexp.Compile("(.*):([0-9|\\.]+)\\|(c|g|ms)")
-	if err != nil {
-		fmt.Printf("%v", err)
-	}
-	matches := metricRegex.FindAllStringSubmatch(metric, -1)
 	d := Datapoint{}
-	if len(matches) > 0 && len(matches[0]) == 4 {
-		value, _ := strconv.ParseFloat(matches[0][2], 64)
-		d = Datapoint{time.Now(), matches[0][1], value, matches[0][3]}
+	components := strings.Split(metric, ":")
+	if len(components) == 2 {
+		latter_components := strings.Split(components[1], "|")
+		if len(latter_components) == 2 {
+			value, _ := strconv.ParseFloat(latter_components[0], 64)
+			d = Datapoint{time.Now(), components[0], value, latter_components[1]}
+		}
 	}
 	return d
 }
