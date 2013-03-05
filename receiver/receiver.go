@@ -41,6 +41,7 @@ var counterHeartbeat chan int
 const readLen = 256
 const channelBufferSize = 10000
 const heartbeatInterval = 1
+const numIncomingMessageProcessors = 10
 
 func main() {
 	shared.LoadConfig()
@@ -57,13 +58,18 @@ func main() {
 	diskAppendChannel = appendToFile(datapointChannel)
 	redisAppendChannel = addToRedisZset()
 
+	processingChannel := make(chan string, channelBufferSize)
+	for i := 0; i < numIncomingMessageProcessors; i++ {
+		launchMessageProcessor(processingChannel)
+	}
+
 	go runHeartbeat()
 
 	go processGauges(gaugeChannel)
 	go processCounters(counterChannel)
 	go processTimers(timerChannel)
 
-	go bindUDP()
+	go bindUDP(processingChannel)
 	go bindTCP()
 
 	c := make(chan int)
@@ -84,7 +90,7 @@ func runHeartbeat() {
 	}
 }
 
-func bindUDP() {
+func bindUDP(ch chan string) {
 
 	server, err := net.ListenPacket("udp", ":"+shared.Config.Port)
 	defer server.Close()
@@ -98,7 +104,8 @@ func bindUDP() {
 		if err != nil {
 			continue
 		}
-		processIncomingMessage(string(buffer[0:n]))
+		//processIncomingMessage(string(buffer[0:n]))
+		ch <- string(buffer[0:n])
 	}
 }
 
@@ -138,6 +145,15 @@ func clientTCPConns(listener net.Listener) chan net.Conn {
 	return ch
 }
 
+func launchMessageProcessor(ch chan string) {
+	go func(channel chan string) {
+		for {
+			message := <-channel
+			processIncomingMessage(message)
+		}
+	}(ch)
+}
+
 func processIncomingMessage(message string) {
 	d := parseDatapoint(message)
 	if d.Datatype == "g" {
@@ -147,7 +163,6 @@ func processIncomingMessage(message string) {
 	} else if d.Datatype == "ms" {
 		timerChannel <- d
 	}
-
 }
 
 func parseDatapoint(metric string) Datapoint {
