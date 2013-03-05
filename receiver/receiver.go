@@ -127,7 +127,7 @@ func bindTCP(processingChannel chan string) {
 					return
 				}
 				select {
-				case processingChannel <- string(line):
+				case processingChannel <- strings.TrimSpace(strings.Replace(string(line), "\n", "", -1)):
 				default:
 				}
 			}
