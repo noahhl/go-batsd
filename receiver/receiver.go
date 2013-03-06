@@ -105,7 +105,7 @@ func bindUDP(processingChannel chan string) {
 			continue
 		}
 		select {
-		case processingChannel <- string(buffer[0:n]):
+		case processingChannel <- strings.TrimSpace(strings.Replace(string(buffer[0:n]), "\n", "", -1)):
 		default:
 		}
 	}
@@ -175,8 +175,12 @@ func parseDatapoint(metric string) Datapoint {
 	components := strings.Split(metric, ":")
 	if len(components) == 2 {
 		latter_components := strings.Split(components[1], "|")
-		if len(latter_components) == 2 {
+		if len(latter_components) >= 2 {
 			value, _ := strconv.ParseFloat(latter_components[0], 64)
+			if len(latter_components) == 3 && latter_components[1] == "c" {
+				sample_rate, _ := strconv.ParseFloat(latter_components[2], 64)
+				value = value / sample_rate
+			}
 			d = Datapoint{time.Now(), components[0], value, latter_components[1]}
 		}
 	}
