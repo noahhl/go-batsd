@@ -126,7 +126,10 @@ func handleConn(client net.Conn) {
 			metric := parts[1]
 			operation := ""
 			if m, _ := regexp.MatchString("^counters|^gauges", metric); !m {
-				operation = strings.Split(metric, ":")[2]
+				pieces := strings.Split(metric, ":")
+				if len(pieces) >= 3 {
+					operation = strings.Split(metric, ":")[2]
+				}
 				metric = strings.Replace(metric, ":"+operation, "", -1)
 			}
 
