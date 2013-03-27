@@ -28,6 +28,7 @@ type AggregateObservation struct {
 	Name      string
 	Content   string
 	Timestamp int64
+	RawName   string
 }
 
 var gaugeChannel chan Datapoint
@@ -226,7 +227,7 @@ func appendToFile(datapoints chan string) chan AggregateObservation {
 						fmt.Printf("%v", err)
 					}
 					newFile = true
-					datapoints <- observation.Name
+					datapoints <- observation.RawName
 				} else {
 					panic(err)
 				}
@@ -264,7 +265,7 @@ func processGauges(gauges chan Datapoint) {
 	for {
 		d := <-gauges
 		//fmt.Printf("Processing gauge %v with value %v and timestamp %v \n", d.Name, d.Value, d.Timestamp)
-		observation := AggregateObservation{"gauges:" + d.Name, fmt.Sprintf("%d %v\n", d.Timestamp.Unix(), d.Value), 0}
+		observation := AggregateObservation{"gauges:" + d.Name, fmt.Sprintf("%d %v\n", d.Timestamp.Unix(), d.Value), 0, "gauges:" + d.Name}
 		diskAppendChannel <- observation
 	}
 }
@@ -305,10 +306,10 @@ func processCounters(ch chan Datapoint) {
 				for key, value := range counters[i][currentSlots[i]] {
 					if value > 0 {
 						if i == 0 { //Store to redis
-							observation := AggregateObservation{"counters:" + key, fmt.Sprintf("%d<X>%v", timestamp, value), timestamp}
+							observation := AggregateObservation{"counters:" + key, fmt.Sprintf("%d<X>%v", timestamp, value), timestamp, "counters:" + key}
 							redisAppendChannel <- observation
 						} else {
-							observation := AggregateObservation{"counters:" + key + ":" + strconv.FormatInt(shared.Config.Retentions[i].Interval, 10), fmt.Sprintf("%d %v\n", timestamp, value), timestamp}
+							observation := AggregateObservation{"counters:" + key + ":" + strconv.FormatInt(shared.Config.Retentions[i].Interval, 10), fmt.Sprintf("%d %v\n", timestamp, value), timestamp, "counters:" + key}
 							diskAppendChannel <- observation
 						}
 						delete(counters[i][currentSlots[i]], key)
@@ -369,10 +370,10 @@ func processTimers(ch chan Datapoint) {
 
 						aggregates := fmt.Sprintf("%v/%v/%v/%v/%v/%v/%v/%v/%v", count, min, max, median, mean, stddev, percentile_90, percentile_95, percentile_99)
 						if i == 0 { //Store to redis
-							observation := AggregateObservation{"timers:" + key, fmt.Sprintf("%d<X>%v", timestamp, aggregates), timestamp}
+							observation := AggregateObservation{"timers:" + key, fmt.Sprintf("%d<X>%v", timestamp, aggregates), timestamp, "timers:" + key}
 							redisAppendChannel <- observation
 						} else { // Store to disk
-							observation := AggregateObservation{"timers:" + key + ":" + strconv.FormatInt(shared.Config.Retentions[i].Interval, 10) + ":2", fmt.Sprintf("%d %v\n", timestamp, aggregates), timestamp}
+							observation := AggregateObservation{"timers:" + key + ":" + strconv.FormatInt(shared.Config.Retentions[i].Interval, 10) + ":2", fmt.Sprintf("%d %v\n", timestamp, aggregates), timestamp, "timers:" + key}
 							diskAppendChannel <- observation
 						}
 
