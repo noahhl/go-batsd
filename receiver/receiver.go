@@ -105,9 +105,14 @@ func bindUDP(processingChannel chan string) {
 		if err != nil {
 			continue
 		}
-		select {
-		case processingChannel <- strings.TrimSpace(strings.Replace(string(buffer[0:n]), "\n", "", -1)):
-		default:
+		payload := string(buffer[0:n])
+		messages := strings.Split(payload, "\n")
+		for i := 0; i < len(messages)-1; i++ {
+			select {
+			case processingChannel <- strings.TrimSpace(strings.Replace(messages[i], "\n", "", -1)):
+			default:
+			}
+
 		}
 	}
 }
