@@ -39,10 +39,10 @@ var redisAppendChannel chan AggregateObservation
 var timerHeartbeat chan int
 var counterHeartbeat chan int
 
-const readLen = 256
+const readLen = 65536
 const channelBufferSize = 10000
 const heartbeatInterval = 1
-const numIncomingMessageProcessors = 10
+const numIncomingMessageProcessors = 100
 
 func main() {
 	shared.LoadConfig()
@@ -107,10 +107,12 @@ func bindUDP(processingChannel chan string) {
 		}
 		payload := string(buffer[0:n])
 		messages := strings.Split(payload, "\n")
-		for i := 0; i < len(messages)-1; i++ {
-			select {
-			case processingChannel <- strings.TrimSpace(strings.Replace(messages[i], "\n", "", -1)):
-			default:
+		for i := range messages {
+			if messages[i] != "" {
+				select {
+				case processingChannel <- strings.TrimSpace(strings.Replace(messages[i], "\n", "", -1)):
+				default:
+				}
 			}
 
 		}
