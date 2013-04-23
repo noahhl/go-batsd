@@ -33,25 +33,33 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	rawDatapoints, err := redis.Smembers("datapoints")
-	if err != nil {
-		panic(err)
-	}
-	since := float64(time.Now().Unix() - retention.Duration)
+
 	datapoints := make([]string, 0)
-	for _, key := range rawDatapoints {
-		if m, _ := regexp.MatchString("^gauges", string(key)); !m {
-			l := len(datapoints)
-			if l+1 > cap(datapoints) {
-				newSlice := make([]string, (l+1)*2)
-				copy(newSlice, datapoints)
-				datapoints = newSlice
+	if index == 0 {
+		rawDatapoints, err := redis.Keys("*")
+		if err != nil {
+			panic(err)
+		}
+
+		for _, key := range rawDatapoints {
+			if m, _ := regexp.MatchString("^timers|^counters", string(key)); m {
+				datapoints = append(datapoints, string(key))
 			}
-			datapoints = datapoints[0 : l+1]
-			datapoints[l] = string(key)
+		}
+	} else {
+		rawDatapoints, err := redis.Smembers("datapoints")
+		if err != nil {
+			panic(err)
+		}
+
+		for _, key := range rawDatapoints {
+			if m, _ := regexp.MatchString("^timers|^counters", string(key)); m {
+				datapoints = append(datapoints, string(key))
+			}
 		}
 
 	}
+	since := float64(time.Now().Unix() - retention.Duration)
 	fmt.Printf("Truncating %v datapoints since %f.\n", len(datapoints), since)
 
 	if index == 0 { //Redis truncation
@@ -59,8 +67,12 @@ func main() {
 			redis.Zremrangebyscore(key, 0.0, since)
 		}
 	} else {
-		c := make(chan int, NWORKERS)
-		for i := 0; i < NWORKERS; i++ {
+		nworkers := NWORKERS
+		if nworkers > len(datapoints) {
+			nworkers = len(datapoints)
+		}
+		c := make(chan int, nworkers)
+		for i := 0; i < nworkers; i++ {
 			go func(datapoints []string, i int, c chan int) {
 				for _, key := range datapoints {
 					metricName := key + ":" + strconv.FormatInt(retention.Interval, 10)
@@ -70,11 +82,11 @@ func main() {
 					TruncateOnDisk(metricName, since)
 				}
 				c <- 1
-			}(datapoints[i*len(datapoints)/NWORKERS:(i+1)*len(datapoints)/NWORKERS-1], i, c)
+			}(datapoints[i*len(datapoints)/nworkers:(i+1)*len(datapoints)/nworkers-1], i, c)
 
 		}
 
-		for i := 0; i < NWORKERS; i++ {
+		for i := 0; i < nworkers; i++ {
 			<-c
 		}
 
