@@ -126,7 +126,7 @@ func handleConn(client net.Conn) {
 					client.Write([]byte("\n"))
 				}
 			}
-		} else if strings.Contains("values", string(line)) {
+		} else if strings.Contains(string(line), "values") {
 			parts := strings.Split(strings.TrimSpace(string(line)), " ")
 			if len(parts) < 3 {
 				client.Write([]byte("Invalid arguments"))
