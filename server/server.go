@@ -9,7 +9,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,6 +33,25 @@ func main() {
 	}
 }
 
+func metricIsX(metric string, x string) (result bool) {
+	if strings.HasPrefix(metric, x) {
+		result = true
+	}
+	return
+}
+
+func metricIsCounter(metric string) bool {
+	return metricIsX(metric, "counters")
+}
+
+func metricIsGauge(metric string) bool {
+	return metricIsX(metric, "gauges")
+}
+
+func metricIsTimer(metric string) bool {
+	return metricIsX(metric, "timers")
+}
+
 func clientConns(listener net.Listener) chan net.Conn {
 	ch := make(chan net.Conn)
 	i := 0
@@ -53,13 +71,12 @@ func clientConns(listener net.Listener) chan net.Conn {
 }
 
 func createDatapoint(rawTs string, rawValue string, operation string, metric string, version string) Datapoint {
-
 	headers := map[string]int{"count": 0, "min": 1, "max": 2, "median": 3, "mean": 4,
 		"stddev": 5, "percentile_90": 6, "percentile_95": 7, "percentile_99": 8,
 		"upper_90": 6, "upper_95": 7, "upper_99": 8}
 	ts, _ := strconv.ParseFloat(rawTs, 64)
 	value := 0.0
-	if m, _ := regexp.MatchString("^counters|^gauges", metric); m {
+	if metricIsCounter(metric) || metricIsGauge(metric) {
 		//counter or gauge - make it a float and move on
 		value, _ = strconv.ParseFloat(rawValue, 64)
 	} else {
@@ -94,7 +111,7 @@ func handleConn(client net.Conn) {
 			break
 		}
 
-		if m, _ := regexp.MatchString("(?i)available", string(line)); m {
+		if strings.Contains(strings.ToLower(string(line)), "available") {
 			a, redisErr := redis.Smembers("datapoints")
 			available := make([]string, len(a))
 			for i := 0; i < len(a); i++ {
@@ -109,7 +126,7 @@ func handleConn(client net.Conn) {
 					client.Write([]byte("\n"))
 				}
 			}
-		} else if m, _ := regexp.MatchString("values", string(line)); m {
+		} else if strings.Contains("values", string(line)) {
 			parts := strings.Split(strings.TrimSpace(string(line)), " ")
 			if len(parts) < 3 {
 				client.Write([]byte("Invalid arguments"))
@@ -125,7 +142,8 @@ func handleConn(client net.Conn) {
 			delta := now - beginTime
 			metric := parts[1]
 			operation := ""
-			if m, _ := regexp.MatchString("^counters|^gauges", metric); !m {
+
+			if !(metricIsCounter(metric) || metricIsGauge(metric)) {
 				pieces := strings.Split(metric, ":")
 				if len(pieces) >= 3 {
 					operation = strings.Split(metric, ":")[2]
@@ -137,7 +155,7 @@ func handleConn(client net.Conn) {
 			endTs, _ := strconv.ParseFloat(parts[3], 64)
 
 			//Redis retention
-			if m, _ := regexp.MatchString("^gauges", metric); !m && delta < shared.Config.Retentions[0].Duration {
+			if !metricIsGauge(metric) && delta < shared.Config.Retentions[0].Duration {
 
 				v, redisErr := redis.Zrangebyscore(metric, startTs, endTs) //metric, start, end
 				if redisErr == nil {
@@ -152,13 +170,13 @@ func handleConn(client net.Conn) {
 			} else {
 				//Reading from disk
 				retention := shared.Config.Retentions[sort.Search(len(shared.Config.Retentions), func(i int) bool { return i > 0 && shared.Config.Retentions[i].Duration > delta })]
-				if m, _ := regexp.MatchString("^timers", metric); m {
+				if metricIsTimer(metric) {
 					if version == "2" {
 						metric = metric + ":" + strconv.FormatInt(retention.Interval, 10) + ":2"
 					} else {
 						metric = metric + ":" + operation + ":" + strconv.FormatInt(retention.Interval, 10)
 					}
-				} else if m, _ := regexp.MatchString("^counters", metric); m {
+				} else if metricIsCounter(metric) {
 					metric = metric + ":" + strconv.FormatInt(retention.Interval, 10)
 				}
 				filePath := shared.CalculateFilename(metric, shared.Config.Root)
@@ -204,10 +222,9 @@ func handleConn(client net.Conn) {
 				client.Write(serializeDatapoints(values))
 				client.Write([]byte("\n"))
 			}
-
-		} else if m, _ := regexp.MatchString("(?i)ping", string(line)); m {
+		} else if strings.Contains(strings.ToLower(string(line)), "ping") {
 			client.Write([]byte("PONG\n"))
-		} else if m, _ := regexp.MatchString("(?i)quit|exit", string(line)); m {
+		} else if strings.Contains(strings.ToLower(string(line)), "quit") || strings.Contains(strings.ToLower(string(line)), "exit") {
 			client.Write([]byte("BYE\n"))
 			client.Close()
 		} else {
