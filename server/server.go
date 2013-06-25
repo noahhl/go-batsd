@@ -44,8 +44,8 @@ func metricIsCounter(metric string) bool {
 	return metricIsX(metric, "counters")
 }
 
-func metricIsGuage(metric string) bool {
-	return metricIsX(metric, "guages")
+func metricIsGauge(metric string) bool {
+	return metricIsX(metric, "gauges")
 }
 
 func metricIsTimer(metric string) bool {
@@ -76,7 +76,7 @@ func createDatapoint(rawTs string, rawValue string, operation string, metric str
 		"upper_90": 6, "upper_95": 7, "upper_99": 8}
 	ts, _ := strconv.ParseFloat(rawTs, 64)
 	value := 0.0
-	if metricIsCounter(metric) || metricIsGuage(metric) {
+	if metricIsCounter(metric) || metricIsGauge(metric) {
 		//counter or gauge - make it a float and move on
 		value, _ = strconv.ParseFloat(rawValue, 64)
 	} else {
@@ -143,7 +143,7 @@ func handleConn(client net.Conn) {
 			metric := parts[1]
 			operation := ""
 
-			if !(metricIsCounter(metric) || metricIsGuage(metric)) {
+			if !(metricIsCounter(metric) || metricIsGauge(metric)) {
 				pieces := strings.Split(metric, ":")
 				if len(pieces) >= 3 {
 					operation = strings.Split(metric, ":")[2]
@@ -155,7 +155,7 @@ func handleConn(client net.Conn) {
 			endTs, _ := strconv.ParseFloat(parts[3], 64)
 
 			//Redis retention
-			if !metricIsGuage(metric) && delta < shared.Config.Retentions[0].Duration {
+			if !metricIsGauge(metric) && delta < shared.Config.Retentions[0].Duration {
 
 				v, redisErr := redis.Zrangebyscore(metric, startTs, endTs) //metric, start, end
 				if redisErr == nil {
