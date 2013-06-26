@@ -1,7 +1,7 @@
 package main
 
 import (
-	"../shared"
+	"./gobatsd"
 	"bufio"
 	"fmt"
 	"github.com/noahhl/Go-Redis"
@@ -17,18 +17,18 @@ import (
 const NWORKERS = 4
 
 func main() {
-	shared.LoadConfig()
-	index := sort.Search(len(shared.Config.Retentions), func(i int) bool { return shared.Config.Retentions[i].Interval == shared.Config.TargetInterval })
-	if index == len(shared.Config.Retentions) {
-		if shared.Config.Retentions[0].Interval == shared.Config.TargetInterval {
+	gobatsd.LoadConfig()
+	index := sort.Search(len(gobatsd.Config.Retentions), func(i int) bool { return gobatsd.Config.Retentions[i].Interval == gobatsd.Config.TargetInterval })
+	if index == len(gobatsd.Config.Retentions) {
+		if gobatsd.Config.Retentions[0].Interval == gobatsd.Config.TargetInterval {
 			index = 0
 		} else {
 			panic("You must specify the duration you'd like to truncate")
 		}
 	}
-	retention := shared.Config.Retentions[index]
+	retention := gobatsd.Config.Retentions[index]
 	fmt.Printf("Starting truncation for the %v duration.\n", retention.Interval)
-	spec := redis.DefaultSpec().Host(shared.Config.RedisHost).Port(shared.Config.RedisPort)
+	spec := redis.DefaultSpec().Host(gobatsd.Config.RedisHost).Port(gobatsd.Config.RedisPort)
 	redis, err := redis.NewSynchClientWithSpec(spec)
 	if err != nil {
 		panic(err)
@@ -94,7 +94,7 @@ func main() {
 }
 
 func TruncateOnDisk(metric string, since float64) {
-	filePath := shared.CalculateFilename(metric, shared.Config.Root)
+	filePath := gobatsd.CalculateFilename(metric, gobatsd.Config.Root)
 	file, err := os.Open(filePath)
 	tmpfile, writeErr := os.Create(filePath + "tmp")
 	if writeErr != nil {

@@ -1,4 +1,4 @@
-package shared
+package gobatsd
 
 import (
 	"crypto/md5"

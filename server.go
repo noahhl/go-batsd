@@ -1,7 +1,7 @@
 package main
 
 import (
-	"../shared"
+	"./gobatsd"
 	"bufio"
 	"encoding/json"
 	"fmt"
@@ -21,9 +21,9 @@ type Datapoint struct {
 
 func main() {
 
-	shared.LoadConfig()
-	fmt.Printf("Starting on port %v, root dir %v\n", shared.Config.Port, shared.Config.Root)
-	server, err := net.Listen("tcp", ":"+shared.Config.Port)
+	gobatsd.LoadConfig()
+	fmt.Printf("Starting on port %v, root dir %v\n", gobatsd.Config.Port, gobatsd.Config.Root)
+	server, err := net.Listen("tcp", ":"+gobatsd.Config.Port)
 	if err != nil {
 		panic(err)
 	}
@@ -96,7 +96,7 @@ func serializeDatapoints(datapoints []Datapoint) []byte {
 
 func handleConn(client net.Conn) {
 	b := bufio.NewReader(client)
-	spec := redis.DefaultSpec().Host(shared.Config.RedisHost).Port(shared.Config.RedisPort)
+	spec := redis.DefaultSpec().Host(gobatsd.Config.RedisHost).Port(gobatsd.Config.RedisPort)
 	redis, redisErr := redis.NewSynchClientWithSpec(spec)
 
 	if redisErr != nil {
@@ -155,7 +155,7 @@ func handleConn(client net.Conn) {
 			endTs, _ := strconv.ParseFloat(parts[3], 64)
 
 			//Redis retention
-			if !metricIsGauge(metric) && delta < shared.Config.Retentions[0].Duration {
+			if !metricIsGauge(metric) && delta < gobatsd.Config.Retentions[0].Duration {
 
 				v, redisErr := redis.Zrangebyscore(metric, startTs, endTs) //metric, start, end
 				if redisErr == nil {
@@ -169,7 +169,7 @@ func handleConn(client net.Conn) {
 				}
 			} else {
 				//Reading from disk
-				retention := shared.Config.Retentions[sort.Search(len(shared.Config.Retentions), func(i int) bool { return i > 0 && shared.Config.Retentions[i].Duration > delta })]
+				retention := gobatsd.Config.Retentions[sort.Search(len(gobatsd.Config.Retentions), func(i int) bool { return i > 0 && gobatsd.Config.Retentions[i].Duration > delta })]
 				if metricIsTimer(metric) {
 					if version == "2" {
 						metric = metric + ":" + strconv.FormatInt(retention.Interval, 10) + ":2"
@@ -179,7 +179,7 @@ func handleConn(client net.Conn) {
 				} else if metricIsCounter(metric) {
 					metric = metric + ":" + strconv.FormatInt(retention.Interval, 10)
 				}
-				filePath := shared.CalculateFilename(metric, shared.Config.Root)
+				filePath := gobatsd.CalculateFilename(metric, gobatsd.Config.Root)
 				file, err := os.Open(filePath)
 				values := make([]Datapoint, 0)
 				if err == nil {

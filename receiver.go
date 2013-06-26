@@ -1,7 +1,7 @@
 package main
 
 import (
-	"../shared"
+	"./gobatsd"
 	"bufio"
 	"fmt"
 	"net"
@@ -45,14 +45,14 @@ const heartbeatInterval = 1
 const numIncomingMessageProcessors = 100
 
 func main() {
-	shared.LoadConfig()
+	gobatsd.LoadConfig()
 	gaugeChannel = make(chan Datapoint, channelBufferSize)
 	counterChannel = make(chan Datapoint, channelBufferSize)
 	timerChannel = make(chan Datapoint, channelBufferSize)
 	counterHeartbeat = make(chan int)
 	timerHeartbeat = make(chan int)
 
-	fmt.Printf("Starting on port %v\n", shared.Config.Port)
+	fmt.Printf("Starting on port %v\n", gobatsd.Config.Port)
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	datapointChannel := saveNewDatapoints()
@@ -93,7 +93,7 @@ func runHeartbeat() {
 
 func bindUDP(processingChannel chan string) {
 
-	server, err := net.ListenPacket("udp", ":"+shared.Config.Port)
+	server, err := net.ListenPacket("udp", ":"+gobatsd.Config.Port)
 	defer server.Close()
 	if err != nil {
 		panic(err)
@@ -121,7 +121,7 @@ func bindUDP(processingChannel chan string) {
 
 func bindTCP(processingChannel chan string) {
 
-	server, err := net.Listen("tcp", ":"+shared.Config.Port)
+	server, err := net.Listen("tcp", ":"+gobatsd.Config.Port)
 	if err != nil {
 		panic(err)
 	}
@@ -199,7 +199,7 @@ func saveNewDatapoints() chan string {
 	c := make(chan string, channelBufferSize)
 
 	go func(ch chan string) {
-		spec := redis.DefaultSpec().Host(shared.Config.RedisHost).Port(shared.Config.RedisPort)
+		spec := redis.DefaultSpec().Host(gobatsd.Config.RedisHost).Port(gobatsd.Config.RedisPort)
 		redis, _ := redis.NewSynchClientWithSpec(spec)
 		for {
 			d := <-ch
@@ -216,7 +216,7 @@ func appendToFile(datapoints chan string) chan AggregateObservation {
 	go func(ch chan AggregateObservation, datapoints chan string) {
 		for {
 			observation := <-ch
-			filename := shared.CalculateFilename(observation.Name, shared.Config.Root)
+			filename := gobatsd.CalculateFilename(observation.Name, gobatsd.Config.Root)
 
 			file, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0600)
 			newFile := false
@@ -256,7 +256,7 @@ func appendToFile(datapoints chan string) chan AggregateObservation {
 func addToRedisZset() chan AggregateObservation {
 	c := make(chan AggregateObservation, channelBufferSize)
 	go func(ch chan AggregateObservation) {
-		spec := redis.DefaultSpec().Host(shared.Config.RedisHost).Port(shared.Config.RedisPort)
+		spec := redis.DefaultSpec().Host(gobatsd.Config.RedisHost).Port(gobatsd.Config.RedisPort)
 		redis, _ := redis.NewSynchClientWithSpec(spec)
 		for {
 			observation := <-ch
@@ -283,14 +283,14 @@ type Counter struct {
 }
 
 func processCounters(ch chan Datapoint) {
-	currentSlots := make([]int64, len(shared.Config.Retentions))
-	maxSlots := make([]int64, len(shared.Config.Retentions))
-	for i := range shared.Config.Retentions {
+	currentSlots := make([]int64, len(gobatsd.Config.Retentions))
+	maxSlots := make([]int64, len(gobatsd.Config.Retentions))
+	for i := range gobatsd.Config.Retentions {
 		currentSlots[i] = 0
-		maxSlots[i] = shared.Config.Retentions[i].Interval / heartbeatInterval
+		maxSlots[i] = gobatsd.Config.Retentions[i].Interval / heartbeatInterval
 	}
 
-	counters := make([][]map[string]float64, len(shared.Config.Retentions))
+	counters := make([][]map[string]float64, len(gobatsd.Config.Retentions))
 	for i := range counters {
 		counters[i] = make([]map[string]float64, maxSlots[i])
 		for j := range counters[i] {
@@ -302,21 +302,21 @@ func processCounters(ch chan Datapoint) {
 		select {
 		case d := <-ch:
 			//fmt.Printf("Processing counter %v with value %v and timestamp %v \n", d.Name, d.Value, d.Timestamp)
-			for i := range shared.Config.Retentions {
+			for i := range gobatsd.Config.Retentions {
 				hashSlot := int64(mmh3.Hash32([]byte(d.Name))) % maxSlots[i]
 				counters[i][hashSlot][d.Name] += d.Value
 			}
 
 		case <-counterHeartbeat:
 			for i := range currentSlots {
-				timestamp := time.Now().Unix() - (time.Now().Unix() % shared.Config.Retentions[i].Interval)
+				timestamp := time.Now().Unix() - (time.Now().Unix() % gobatsd.Config.Retentions[i].Interval)
 				for key, value := range counters[i][currentSlots[i]] {
 					if value > 0 {
 						if i == 0 { //Store to redis
 							observation := AggregateObservation{"counters:" + key, fmt.Sprintf("%d<X>%v", timestamp, value), timestamp, "counters:" + key}
 							redisAppendChannel <- observation
 						} else {
-							observation := AggregateObservation{"counters:" + key + ":" + strconv.FormatInt(shared.Config.Retentions[i].Interval, 10), fmt.Sprintf("%d %v\n", timestamp, value), timestamp, "counters:" + key}
+							observation := AggregateObservation{"counters:" + key + ":" + strconv.FormatInt(gobatsd.Config.Retentions[i].Interval, 10), fmt.Sprintf("%d %v\n", timestamp, value), timestamp, "counters:" + key}
 							diskAppendChannel <- observation
 						}
 						delete(counters[i][currentSlots[i]], key)
@@ -334,14 +334,14 @@ func processCounters(ch chan Datapoint) {
 
 func processTimers(ch chan Datapoint) {
 
-	currentSlots := make([]int64, len(shared.Config.Retentions))
-	maxSlots := make([]int64, len(shared.Config.Retentions))
-	for i := range shared.Config.Retentions {
+	currentSlots := make([]int64, len(gobatsd.Config.Retentions))
+	maxSlots := make([]int64, len(gobatsd.Config.Retentions))
+	for i := range gobatsd.Config.Retentions {
 		currentSlots[i] = 0
-		maxSlots[i] = shared.Config.Retentions[i].Interval / heartbeatInterval
+		maxSlots[i] = gobatsd.Config.Retentions[i].Interval / heartbeatInterval
 	}
 
-	timers := make([][]map[string][]float64, len(shared.Config.Retentions))
+	timers := make([][]map[string][]float64, len(gobatsd.Config.Retentions))
 	for i := range timers {
 		timers[i] = make([]map[string][]float64, maxSlots[i])
 		for j := range timers[i] {
@@ -353,7 +353,7 @@ func processTimers(ch chan Datapoint) {
 		select {
 		case d := <-ch:
 			//fmt.Printf("Processing timer %v with value %v and timestamp %v \n", d.Name, d.Value, d.Timestamp)
-			for i := range shared.Config.Retentions {
+			for i := range gobatsd.Config.Retentions {
 				hashSlot := int64(mmh3.Hash32([]byte(d.Name))) % maxSlots[i]
 				timers[i][hashSlot][d.Name] = append(timers[i][hashSlot][d.Name], d.Value)
 			}
@@ -361,26 +361,26 @@ func processTimers(ch chan Datapoint) {
 			for i := range currentSlots {
 				//fmt.Printf("%v %v %v\n", i, currentSlots[i], timers[i][currentSlots[i]])
 
-				timestamp := time.Now().Unix() - (time.Now().Unix() % shared.Config.Retentions[i].Interval)
+				timestamp := time.Now().Unix() - (time.Now().Unix() % gobatsd.Config.Retentions[i].Interval)
 
 				for key, value := range timers[i][currentSlots[i]] {
 					if len(value) > 0 {
 						count := len(value)
-						min := shared.Min(value)
-						max := shared.Max(value)
-						median := shared.Median(value)
-						mean := shared.Mean(value)
-						stddev := shared.Stddev(value)
-						percentile_90 := shared.Percentile(value, 0.9)
-						percentile_95 := shared.Percentile(value, 0.95)
-						percentile_99 := shared.Percentile(value, 0.99)
+						min := gobatsd.Min(value)
+						max := gobatsd.Max(value)
+						median := gobatsd.Median(value)
+						mean := gobatsd.Mean(value)
+						stddev := gobatsd.Stddev(value)
+						percentile_90 := gobatsd.Percentile(value, 0.9)
+						percentile_95 := gobatsd.Percentile(value, 0.95)
+						percentile_99 := gobatsd.Percentile(value, 0.99)
 
 						aggregates := fmt.Sprintf("%v/%v/%v/%v/%v/%v/%v/%v/%v", count, min, max, median, mean, stddev, percentile_90, percentile_95, percentile_99)
 						if i == 0 { //Store to redis
 							observation := AggregateObservation{"timers:" + key, fmt.Sprintf("%d<X>%v", timestamp, aggregates), timestamp, "timers:" + key}
 							redisAppendChannel <- observation
 						} else { // Store to disk
-							observation := AggregateObservation{"timers:" + key + ":" + strconv.FormatInt(shared.Config.Retentions[i].Interval, 10) + ":2", fmt.Sprintf("%d %v\n", timestamp, aggregates), timestamp, "timers:" + key}
+							observation := AggregateObservation{"timers:" + key + ":" + strconv.FormatInt(gobatsd.Config.Retentions[i].Interval, 10) + ":2", fmt.Sprintf("%d %v\n", timestamp, aggregates), timestamp, "timers:" + key}
 							diskAppendChannel <- observation
 						}
 

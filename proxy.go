@@ -1,7 +1,7 @@
 package main
 
 import (
-	"../shared"
+	"./gobatsd"
 	"fmt"
 	"net"
 	"os"
@@ -20,10 +20,10 @@ func main() {
 	pprof.StartCPUProfile(prof)
 	defer pprof.StopCPUProfile()
 
-	shared.LoadConfig()
-	fmt.Printf("Starting on port %v\n", shared.Config.Port)
+	gobatsd.LoadConfig()
+	fmt.Printf("Starting on port %v\n", gobatsd.Config.Port)
 
-	server, err := net.ListenPacket("udp", ":"+shared.Config.Port)
+	server, err := net.ListenPacket("udp", ":"+gobatsd.Config.Port)
 	defer server.Close()
 	if err != nil {
 		panic(err)
