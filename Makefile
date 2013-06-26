@@ -20,3 +20,8 @@ package:
 	make clean
 	fpm -s dir -t deb -n go-batsd -v ${VERSION} --prefix /usr/local/go-batsd bin
 
+check:
+	go test ./test/*_test.go
+
+bench:
+	go test -bench=".*" ./test/*_test.go
