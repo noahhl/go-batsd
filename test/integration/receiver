@@ -1,0 +1,131 @@
+#!/usr/bin/env ruby
+
+require 'fileutils'
+require 'socket'
+require 'digest'
+require 'redis'
+
+FileUtils.rm_rf("/tmp/batsd/")
+FileUtils.mkdir_p("/tmp/batsd")
+
+
+#Set up the server
+pid = fork do  
+  exec "#{File.expand_path("#{__FILE__}/../../../bin/go-batsd-receiver")} -config #{File.expand_path("#{__FILE__}/../config.yml")} "
+end 
+Process.detach(pid)
+
+begin
+  sleep 1
+  udp_client = UDPSocket.new
+  udp_client.connect "127.0.0.1", 8125
+
+  redis = Redis.new
+  redis.flushall
+
+  #Gauges
+  puts "Executing gauges test."
+  rand_val = rand()
+  udp_client.send "test:#{rand_val}|g", 0
+  sleep 1
+  hash = Digest::MD5.hexdigest("gauges:test")
+  vals = File.read("/tmp/batsd/#{hash[0..1]}/#{hash[2..3]}/#{hash}")
+  if (last_val = vals.split("\n").last.split(" ").last.to_f) != rand_val
+    puts "Gauge test: FAILED. Expected value to be #{rand_val}, was #{last_val}"
+    exit 2
+  else
+    puts "Gauge test: PASSED"
+  end
+
+  # Counters
+  puts "Executing counters test"
+  udp_client.send "test:1|c", 0
+  sleep 2
+  udp_client.send "test:1|c", 0
+  sleep 10
+
+  vals = redis.zrange "counters:test", 0, 10
+  if vals.count != 2 || vals.last.split("<X>").last.to_i != 1
+    puts "Counter test (redis key): FAILED. Expected two values with counter 1, got #{vals}"
+    exit 2
+  else
+    puts "Counter test (redis key): PASSED"
+  end
+
+  hash = Digest::MD5.hexdigest("counters:test:6")
+  vals = File.read("/tmp/batsd/#{hash[0..1]}/#{hash[2..3]}/#{hash}")  
+  total = vals.split("\n").collect{|v| v.split(" ").last.to_i}.inject( nil ) { |sum,x| sum ? sum+x : x }; 
+  if total != 2 
+    puts "Counter test (first disk aggregation): FAILED. Expected total of 2, got #{total}"
+    exit 2
+  else
+    puts "Counter test (first disk aggregation): PASSED"
+  end
+
+
+  hash = Digest::MD5.hexdigest("counters:test:10")
+  vals = File.read("/tmp/batsd/#{hash[0..1]}/#{hash[2..3]}/#{hash}")  
+  if vals.split("\n").count != 2 || vals.split("\n").last.split(" ").last.to_i != 2
+    puts "Counter test (second disk aggregation: FAILED. Got #{vals}"
+    exit 2
+  else
+    puts "Counter test (second disk aggregation: PASSED"
+  end
+  
+  #Timers
+  puts "Executing timers test"
+  udp_client.send "test:1|ms", 0
+  udp_client.send "test:2|ms", 0
+  udp_client.send "test:3|ms", 0
+  udp_client.send "test:4|ms", 0
+  udp_client.send "test:5|ms", 0
+
+  sleep 8
+  hash = Digest::MD5.hexdigest("timers:test:6:2")
+  vals = File.read("/tmp/batsd/#{hash[0..1]}/#{hash[2..3]}/#{hash}")  
+  measurements = vals.split("\n").last.split(" ").last.split("/").map(&:to_f)
+  if measurements[0] != 5
+    puts "Timer test count: FAILED. Got #{measurements[0]}"
+    exit 2
+  else
+    puts "Timer test count: PASSED."
+  end
+
+  if measurements[1] != 1 || measurements[2] != 5
+    puts "Timer test min/max: FAILED. Got #{measurements[1]}/#{measurements[2]}"
+    exit 2
+  else
+    puts "Timer test min/max: PASSED."
+  end
+
+  if measurements[3] != 3 
+    puts "Timer test median: FAILED. Got #{measurements[3]}"
+    exit 2
+  else
+    puts "Timer test median: PASSED."
+  end
+
+  if measurements[4] != 3 
+    puts "Timer test mean: FAILED. Got #{measurements[4]}"
+    exit 2
+  else
+    puts "Timer test mean: PASSED."
+  end
+
+  if measurements[5] != 1.5811388300841898
+    puts "Timer test stddev: FAILED. Got #{measurements[5]}"
+    exit 2
+  else
+    puts "Timer test stddev: PASSED."
+  end
+
+  if measurements[6] != 5 || measurements[7] != 5 || measurements[8] != 5
+    puts "Timer test percentiles: FAILED. Got #{measurements[6..8]}"
+    exit 2
+  else
+    puts "Timer test percentiles: PASSED."
+  end
+
+ensure
+  Process.kill("HUP", pid)
+end
