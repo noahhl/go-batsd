@@ -18,6 +18,7 @@ type Dispatcher struct {
 }
 
 var numRedisRoutines = 50
+var numDiskRoutines = 50
 var redisPoolSize = 20
 
 var dispatcher Dispatcher
@@ -28,8 +29,24 @@ func SetupDispatcher() {
 	dispatcher.redisChannel = make(chan AggregateObservation, channelBufferSize)
 	dispatcher.redisPool = &clamp.ConnectionPoolWrapper{}
 	dispatcher.redisPool.InitPool(redisPoolSize, connectToRedis)
-	go dispatcher.writeToDisk()
-	dispatcher.writeToRedis()
+
+	for i := 0; i < numDiskRoutines; i++ {
+		go func() {
+			for {
+				obs := <-dispatcher.diskChannel
+				dispatcher.writeToDisk(obs)
+			}
+		}()
+	}
+
+	for i := 0; i < numRedisRoutines; i++ {
+		go func() {
+			for {
+				obs := <-dispatcher.redisChannel
+				dispatcher.writeToRedis(obs)
+			}
+		}()
+	}
 }
 
 func StoreOnDisk(observation AggregateObservation) {
@@ -52,55 +69,44 @@ func (d *Dispatcher) RecordMetric(name string) {
 	r.Sadd("datapoints", []byte(name))
 }
 
-func (d *Dispatcher) writeToRedis() {
-	for i := 0; i < numRedisRoutines; i++ {
-		go func() {
-			for {
-				observation := <-d.redisChannel
-				r := d.redisPool.GetConnection().(redis.Client)
-				defer d.redisPool.ReleaseConnection(r)
-				r.Zadd(observation.Name, float64(observation.Timestamp), []byte(observation.Content))
-			}
-		}()
-	}
-
+func (d *Dispatcher) writeToRedis(observation AggregateObservation) {
+	r := d.redisPool.GetConnection().(redis.Client)
+	defer d.redisPool.ReleaseConnection(r)
+	r.Zadd(observation.Name, float64(observation.Timestamp), []byte(observation.Content))
 }
 
-func (d *Dispatcher) writeToDisk() {
+func (d *Dispatcher) writeToDisk(observation AggregateObservation) {
+	filename := CalculateFilename(observation.Name, Config.Root)
 
-	for {
-		observation := <-d.diskChannel
-		filename := CalculateFilename(observation.Name, Config.Root)
-
-		file, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0600)
-		newFile := false
-		if err != nil {
-			if e, ok := err.(*os.PathError); ok && e.Err == syscall.ENOENT {
-				fmt.Printf("Creating %v\n", filename)
-				//Make containing directories if they don't exist
-				err = os.MkdirAll(filepath.Dir(filename), 0755)
-				if err != nil {
-					fmt.Printf("%v", err)
-				}
-
-				file, err = os.Create(filename)
-				if err != nil {
-					fmt.Printf("%v", err)
-				}
-				newFile = true
-				d.RecordMetric(observation.RawName)
-			} else {
-				panic(err)
+	file, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0600)
+	newFile := false
+	if err != nil {
+		if e, ok := err.(*os.PathError); ok && e.Err == syscall.ENOENT {
+			fmt.Printf("Creating %v\n", filename)
+			//Make containing directories if they don't exist
+			err = os.MkdirAll(filepath.Dir(filename), 0755)
+			if err != nil {
+				fmt.Printf("%v", err)
 			}
-		}
-		if file != nil {
-			writer := bufio.NewWriter(file)
-			if newFile {
-				writer.WriteString("v2 " + observation.Name + "\n")
+
+			file, err = os.Create(filename)
+			if err != nil {
+				fmt.Printf("%v", err)
 			}
-			writer.WriteString(observation.Content)
-			writer.Flush()
-			file.Close()
+			newFile = true
+			d.RecordMetric(observation.RawName)
+		} else {
+			panic(err)
 		}
+	}
+	if file != nil {
+		writer := bufio.NewWriter(file)
+		if newFile {
+			writer.WriteString("v2 " + observation.Name + "\n")
+		}
+		writer.WriteString(observation.Content)
+		writer.Flush()
+		file.Close()
+
 	}
 }
