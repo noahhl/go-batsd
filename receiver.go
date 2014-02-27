@@ -1,11 +1,12 @@
 package main
 
 import (
+	"github.com/noahhl/clamp"
+	"github.com/noahhl/go-batsd/gobatsd"
+
 	"bufio"
 	"fmt"
 	"github.com/noahhl/Go-Redis"
-	"github.com/noahhl/clamp"
-	"github.com/noahhl/go-batsd/gobatsd"
 	"github.com/reusee/mmh3"
 	"os"
 	"path/filepath"
