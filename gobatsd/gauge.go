@@ -18,5 +18,5 @@ func NewGaugeHandler() *GaugeHandler {
 func (g *GaugeHandler) ProcessNewDatapoint(d Datapoint) {
 	//fmt.Printf("Processing gauge %v with value %v and timestamp %v \n", d.Name, d.Value, d.Timestamp)
 	observation := AggregateObservation{"gauges:" + d.Name, fmt.Sprintf("%d %v\n", d.Timestamp.Unix(), d.Value), 0, "gauges:" + d.Name}
-	DispatchToDisk(observation)
+	StoreOnDisk(observation)
 }

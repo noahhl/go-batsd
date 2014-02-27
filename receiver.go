@@ -111,10 +111,10 @@ func processCounters(ch chan gobatsd.Datapoint) {
 					if value > 0 {
 						if i == 0 { //Store to redis
 							observation := gobatsd.AggregateObservation{"counters:" + key, fmt.Sprintf("%d<X>%v", timestamp, value), timestamp, "counters:" + key}
-							gobatsd.DispatchToRedis(observation)
+							gobatsd.StoreInRedis(observation)
 						} else {
 							observation := gobatsd.AggregateObservation{"counters:" + key + ":" + strconv.FormatInt(gobatsd.Config.Retentions[i].Interval, 10), fmt.Sprintf("%d %v\n", timestamp, value), timestamp, "counters:" + key}
-							gobatsd.DispatchToDisk(observation)
+							gobatsd.StoreOnDisk(observation)
 						}
 						delete(counters[i][currentSlots[i]], key)
 					}
@@ -175,10 +175,10 @@ func processTimers(ch chan gobatsd.Datapoint) {
 						aggregates := fmt.Sprintf("%v/%v/%v/%v/%v/%v/%v/%v/%v", count, min, max, median, mean, stddev, percentile_90, percentile_95, percentile_99)
 						if i == 0 { //Store to redis
 							observation := gobatsd.AggregateObservation{"timers:" + key, fmt.Sprintf("%d<X>%v", timestamp, aggregates), timestamp, "timers:" + key}
-							gobatsd.DispatchToRedis(observation)
+							gobatsd.StoreInRedis(observation)
 						} else { // Store to disk
 							observation := gobatsd.AggregateObservation{"timers:" + key + ":" + strconv.FormatInt(gobatsd.Config.Retentions[i].Interval, 10) + ":2", fmt.Sprintf("%d %v\n", timestamp, aggregates), timestamp, "timers:" + key}
-							gobatsd.DispatchToDisk(observation)
+							gobatsd.StoreOnDisk(observation)
 						}
 
 						delete(timers[i][currentSlots[i]], key)

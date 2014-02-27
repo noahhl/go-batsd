@@ -24,11 +24,11 @@ func SetupDispatcher() {
 	dispatcher.writeToRedis()
 }
 
-func DispatchToDisk(observation AggregateObservation) {
+func StoreOnDisk(observation AggregateObservation) {
 	dispatcher.diskChannel <- observation
 }
 
-func DispatchToRedis(observation AggregateObservation) {
+func StoreInRedis(observation AggregateObservation) {
 	dispatcher.redisChannel <- observation
 }
 
