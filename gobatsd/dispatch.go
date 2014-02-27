@@ -84,7 +84,7 @@ func (d *Dispatcher) writeToDisk(observation AggregateObservation) {
 	newFile := false
 	if err != nil {
 		if e, ok := err.(*os.PathError); ok && e.Err == syscall.ENOENT {
-			fmt.Printf("Creating %v\n", filename)
+			//fmt.Printf("Creating %v\n", filename)
 			//Make containing directories if they don't exist
 			err = os.MkdirAll(filepath.Dir(filename), 0755)
 			if err != nil {
