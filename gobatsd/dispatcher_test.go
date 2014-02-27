@@ -5,6 +5,7 @@ import (
 	"github.com/noahhl/clamp"
 	"math/rand"
 	"testing"
+	"time"
 )
 
 func TestFilenameCalculation(t *testing.T) {
@@ -70,4 +71,17 @@ func TestSavingToRedis(t *testing.T) {
 		t.Errorf("Expected value to be %v, was %v\n", obs.Content, string(vals[0]))
 	}
 
+}
+
+func BenchmarkSavingToRedis(b *testing.B) {
+	Config.RedisHost = "127.0.0.1"
+	Config.RedisPort = 6379
+
+	d := Dispatcher{}
+	d.redisPool = &clamp.ConnectionPoolWrapper{}
+	d.redisPool.InitPool(redisPoolSize, openRedisConnection)
+	for j := 0; j < b.N; j++ {
+		obs := AggregateObservation{"test_metric", "12345<x>1", time.Now().Unix(), "1"}
+		d.writeToRedis(obs)
+	}
 }
