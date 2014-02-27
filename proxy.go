@@ -1,8 +1,8 @@
 package main
 
 import (
-	"./gobatsd"
 	"fmt"
+	"github.com/noahhl/go-batsd/gobatsd"
 	"net"
 	"os"
 	"runtime/pprof"

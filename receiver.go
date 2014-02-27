@@ -12,17 +12,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 )
-
-type Datapoint struct {
-	Timestamp time.Time
-	Name      string
-	Value     float64
-	Datatype  string
-}
 
 type AggregateObservation struct {
 	Name      string
@@ -31,9 +23,9 @@ type AggregateObservation struct {
 	RawName   string
 }
 
-var gaugeChannel chan Datapoint
-var counterChannel chan Datapoint
-var timerChannel chan Datapoint
+var gaugeChannel chan gobatsd.Datapoint
+var counterChannel chan gobatsd.Datapoint
+var timerChannel chan gobatsd.Datapoint
 var diskAppendChannel chan AggregateObservation
 var redisAppendChannel chan AggregateObservation
 var timerHeartbeat chan int
@@ -45,9 +37,9 @@ const numIncomingMessageProcessors = 100
 
 func main() {
 	gobatsd.LoadConfig()
-	gaugeChannel = make(chan Datapoint, channelBufferSize)
-	counterChannel = make(chan Datapoint, channelBufferSize)
-	timerChannel = make(chan Datapoint, channelBufferSize)
+	gaugeChannel = make(chan gobatsd.Datapoint, channelBufferSize)
+	counterChannel = make(chan gobatsd.Datapoint, channelBufferSize)
+	timerChannel = make(chan gobatsd.Datapoint, channelBufferSize)
 	counterHeartbeat = make(chan int)
 	timerHeartbeat = make(chan int)
 
@@ -59,11 +51,11 @@ func main() {
 	redisAppendChannel = addToRedisZset()
 
 	processingChannel := clamp.StartDualServer(":8125")
+	clamp.StartStatsServer(":8349")
 
 	for i := 0; i < numIncomingMessageProcessors; i++ {
 		launchMessageProcessor(processingChannel)
 	}
-	clamp.StartStatsServer(":8349")
 	go runHeartbeat()
 
 	go processGauges(gaugeChannel)
@@ -98,7 +90,7 @@ func launchMessageProcessor(ch chan string) {
 }
 
 func processIncomingMessage(message string) {
-	d := parseDatapoint(message)
+	d := gobatsd.ParseDatapointFromString(message)
 	if d.Datatype == "g" {
 		gaugeChannel <- d
 	} else if d.Datatype == "c" {
@@ -106,23 +98,6 @@ func processIncomingMessage(message string) {
 	} else if d.Datatype == "ms" {
 		timerChannel <- d
 	}
-}
-
-func parseDatapoint(metric string) Datapoint {
-	d := Datapoint{}
-	components := strings.Split(metric, ":")
-	if len(components) == 2 {
-		latter_components := strings.Split(components[1], "|")
-		if len(latter_components) >= 2 {
-			value, _ := strconv.ParseFloat(latter_components[0], 64)
-			if len(latter_components) == 3 && latter_components[1] == "c" {
-				sample_rate, _ := strconv.ParseFloat(strings.Replace(latter_components[2], "@", "", -1), 64)
-				value = value / sample_rate
-			}
-			d = Datapoint{time.Now(), components[0], value, latter_components[1]}
-		}
-	}
-	return d
 }
 
 func saveNewDatapoints() chan string {
@@ -198,7 +173,7 @@ func addToRedisZset() chan AggregateObservation {
 
 }
 
-func processGauges(gauges chan Datapoint) {
+func processGauges(gauges chan gobatsd.Datapoint) {
 	for {
 		d := <-gauges
 		//fmt.Printf("Processing gauge %v with value %v and timestamp %v \n", d.Name, d.Value, d.Timestamp)
@@ -212,7 +187,7 @@ type Counter struct {
 	Value float64
 }
 
-func processCounters(ch chan Datapoint) {
+func processCounters(ch chan gobatsd.Datapoint) {
 	currentSlots := make([]int64, len(gobatsd.Config.Retentions))
 	maxSlots := make([]int64, len(gobatsd.Config.Retentions))
 	for i := range gobatsd.Config.Retentions {
@@ -262,7 +237,7 @@ func processCounters(ch chan Datapoint) {
 	}
 }
 
-func processTimers(ch chan Datapoint) {
+func processTimers(ch chan gobatsd.Datapoint) {
 
 	currentSlots := make([]int64, len(gobatsd.Config.Retentions))
 	maxSlots := make([]int64, len(gobatsd.Config.Retentions))

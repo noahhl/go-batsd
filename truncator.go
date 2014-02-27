@@ -1,10 +1,10 @@
 package main
 
 import (
-	"./gobatsd"
 	"bufio"
 	"fmt"
 	"github.com/noahhl/Go-Redis"
+	"github.com/noahhl/go-batsd/gobatsd"
 	"io"
 	"os"
 	"regexp"
