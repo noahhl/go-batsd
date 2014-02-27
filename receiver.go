@@ -13,8 +13,7 @@ import (
 	"syscall"
 	"time"
 
-   "../clamp"
-  
+  "github.com/noahhl/clamp"
 	"github.com/noahhl/Go-Redis"
 	"github.com/reusee/mmh3"
 )
