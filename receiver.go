@@ -1,10 +1,12 @@
 package main
 
 import (
-	"./gobatsd"
 	"bufio"
 	"fmt"
-	"net"
+	"github.com/noahhl/Go-Redis"
+	"github.com/noahhl/clamp"
+	"github.com/noahhl/go-batsd/gobatsd"
+	"github.com/reusee/mmh3"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -12,10 +14,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-  "github.com/noahhl/clamp"
-	"github.com/noahhl/Go-Redis"
-	"github.com/reusee/mmh3"
 )
 
 type Datapoint struct {
@@ -59,12 +57,12 @@ func main() {
 	diskAppendChannel = appendToFile(datapointChannel)
 	redisAppendChannel = addToRedisZset()
 
-  processingChannel := clamp.StartDualServer(":8125")
+	processingChannel := clamp.StartDualServer(":8125")
 
-  for i := 0; i < numIncomingMessageProcessors; i++ {
+	for i := 0; i < numIncomingMessageProcessors; i++ {
 		launchMessageProcessor(processingChannel)
 	}
-  clamp.StartStatsServer(":8349")
+	clamp.StartStatsServer(":8349")
 	go runHeartbeat()
 
 	go processGauges(gaugeChannel)
