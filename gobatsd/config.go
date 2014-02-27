@@ -22,6 +22,7 @@ type Configuration struct {
 
 var Config Configuration
 var ProfileCPU bool
+var channelBufferSize = 10000
 
 func LoadConfig() {
 	configPath := flag.String("config", "./config.yml", "config file path")

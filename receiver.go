@@ -4,30 +4,15 @@ import (
 	"github.com/noahhl/clamp"
 	"github.com/noahhl/go-batsd/gobatsd"
 
-	"bufio"
 	"fmt"
-	"github.com/noahhl/Go-Redis"
 	"github.com/reusee/mmh3"
-	"os"
-	"path/filepath"
 	"runtime"
 	"strconv"
-	"syscall"
 	"time"
 )
 
-type AggregateObservation struct {
-	Name      string
-	Content   string
-	Timestamp int64
-	RawName   string
-}
-
-var gaugeChannel chan gobatsd.Datapoint
 var counterChannel chan gobatsd.Datapoint
 var timerChannel chan gobatsd.Datapoint
-var diskAppendChannel chan AggregateObservation
-var redisAppendChannel chan AggregateObservation
 var timerHeartbeat chan int
 var counterHeartbeat chan int
 
@@ -37,7 +22,7 @@ const numIncomingMessageProcessors = 100
 
 func main() {
 	gobatsd.LoadConfig()
-	gaugeChannel = make(chan gobatsd.Datapoint, channelBufferSize)
+
 	counterChannel = make(chan gobatsd.Datapoint, channelBufferSize)
 	timerChannel = make(chan gobatsd.Datapoint, channelBufferSize)
 	counterHeartbeat = make(chan int)
@@ -46,12 +31,10 @@ func main() {
 	fmt.Printf("Starting on port %v\n", gobatsd.Config.Port)
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	datapointChannel := saveNewDatapoints()
-	diskAppendChannel = appendToFile(datapointChannel)
-	redisAppendChannel = addToRedisZset()
-
 	processingChannel := clamp.StartDualServer(":8125")
 	clamp.StartStatsServer(":8349")
+	gobatsd.SetupDispatcher()
+	gaugeHandler := gobatsd.NewGaugeHandler()
 
 	for i := 0; i < numIncomingMessageProcessors; i++ {
 		go func(processingChannel chan string) {
@@ -59,7 +42,7 @@ func main() {
 				message := <-processingChannel
 				d := gobatsd.ParseDatapointFromString(message)
 				if d.Datatype == "g" {
-					gaugeChannel <- d
+					gaugeHandler.ProcessNewDatapoint(d)
 				} else if d.Datatype == "c" {
 					counterChannel <- d
 				} else if d.Datatype == "ms" {
@@ -68,9 +51,8 @@ func main() {
 			}
 		}(processingChannel)
 	}
-	go runHeartbeat()
 
-	go processGauges(gaugeChannel)
+	go runHeartbeat()
 	go processCounters(counterChannel)
 	go processTimers(timerChannel)
 
@@ -89,88 +71,6 @@ func runHeartbeat() {
 			counterHeartbeat <- 1
 			timerHeartbeat <- 1
 		}
-	}
-}
-
-func saveNewDatapoints() chan string {
-	c := make(chan string, channelBufferSize)
-
-	go func(ch chan string) {
-		spec := redis.DefaultSpec().Host(gobatsd.Config.RedisHost).Port(gobatsd.Config.RedisPort)
-		redis, _ := redis.NewSynchClientWithSpec(spec)
-		for {
-			d := <-ch
-			redis.Sadd("datapoints", []byte(d))
-		}
-	}(c)
-
-	return c
-}
-
-func appendToFile(datapoints chan string) chan AggregateObservation {
-	c := make(chan AggregateObservation, channelBufferSize)
-
-	go func(ch chan AggregateObservation, datapoints chan string) {
-		for {
-			observation := <-ch
-			filename := gobatsd.CalculateFilename(observation.Name, gobatsd.Config.Root)
-
-			file, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0600)
-			newFile := false
-			if err != nil {
-				if e, ok := err.(*os.PathError); ok && e.Err == syscall.ENOENT {
-					fmt.Printf("Creating %v\n", filename)
-					//Make containing directories if they don't exist
-					err = os.MkdirAll(filepath.Dir(filename), 0755)
-					if err != nil {
-						fmt.Printf("%v", err)
-					}
-
-					file, err = os.Create(filename)
-					if err != nil {
-						fmt.Printf("%v", err)
-					}
-					newFile = true
-					datapoints <- observation.RawName
-				} else {
-					panic(err)
-				}
-			}
-			if file != nil {
-				writer := bufio.NewWriter(file)
-				if newFile {
-					writer.WriteString("v2 " + observation.Name + "\n")
-				}
-				writer.WriteString(observation.Content)
-				writer.Flush()
-				file.Close()
-			}
-		}
-	}(c, datapoints)
-	return c
-}
-
-func addToRedisZset() chan AggregateObservation {
-	c := make(chan AggregateObservation, channelBufferSize)
-	go func(ch chan AggregateObservation) {
-		spec := redis.DefaultSpec().Host(gobatsd.Config.RedisHost).Port(gobatsd.Config.RedisPort)
-		redis, _ := redis.NewSynchClientWithSpec(spec)
-		for {
-			observation := <-ch
-			redis.Zadd(observation.Name, float64(observation.Timestamp), []byte(observation.Content))
-		}
-	}(c)
-
-	return c
-
-}
-
-func processGauges(gauges chan gobatsd.Datapoint) {
-	for {
-		d := <-gauges
-		//fmt.Printf("Processing gauge %v with value %v and timestamp %v \n", d.Name, d.Value, d.Timestamp)
-		observation := AggregateObservation{"gauges:" + d.Name, fmt.Sprintf("%d %v\n", d.Timestamp.Unix(), d.Value), 0, "gauges:" + d.Name}
-		diskAppendChannel <- observation
 	}
 }
 
@@ -210,11 +110,11 @@ func processCounters(ch chan gobatsd.Datapoint) {
 				for key, value := range counters[i][currentSlots[i]] {
 					if value > 0 {
 						if i == 0 { //Store to redis
-							observation := AggregateObservation{"counters:" + key, fmt.Sprintf("%d<X>%v", timestamp, value), timestamp, "counters:" + key}
-							redisAppendChannel <- observation
+							observation := gobatsd.AggregateObservation{"counters:" + key, fmt.Sprintf("%d<X>%v", timestamp, value), timestamp, "counters:" + key}
+							gobatsd.DispatchToRedis(observation)
 						} else {
-							observation := AggregateObservation{"counters:" + key + ":" + strconv.FormatInt(gobatsd.Config.Retentions[i].Interval, 10), fmt.Sprintf("%d %v\n", timestamp, value), timestamp, "counters:" + key}
-							diskAppendChannel <- observation
+							observation := gobatsd.AggregateObservation{"counters:" + key + ":" + strconv.FormatInt(gobatsd.Config.Retentions[i].Interval, 10), fmt.Sprintf("%d %v\n", timestamp, value), timestamp, "counters:" + key}
+							gobatsd.DispatchToDisk(observation)
 						}
 						delete(counters[i][currentSlots[i]], key)
 					}
@@ -274,11 +174,11 @@ func processTimers(ch chan gobatsd.Datapoint) {
 
 						aggregates := fmt.Sprintf("%v/%v/%v/%v/%v/%v/%v/%v/%v", count, min, max, median, mean, stddev, percentile_90, percentile_95, percentile_99)
 						if i == 0 { //Store to redis
-							observation := AggregateObservation{"timers:" + key, fmt.Sprintf("%d<X>%v", timestamp, aggregates), timestamp, "timers:" + key}
-							redisAppendChannel <- observation
+							observation := gobatsd.AggregateObservation{"timers:" + key, fmt.Sprintf("%d<X>%v", timestamp, aggregates), timestamp, "timers:" + key}
+							gobatsd.DispatchToRedis(observation)
 						} else { // Store to disk
-							observation := AggregateObservation{"timers:" + key + ":" + strconv.FormatInt(gobatsd.Config.Retentions[i].Interval, 10) + ":2", fmt.Sprintf("%d %v\n", timestamp, aggregates), timestamp, "timers:" + key}
-							diskAppendChannel <- observation
+							observation := gobatsd.AggregateObservation{"timers:" + key + ":" + strconv.FormatInt(gobatsd.Config.Retentions[i].Interval, 10) + ":2", fmt.Sprintf("%d %v\n", timestamp, aggregates), timestamp, "timers:" + key}
+							gobatsd.DispatchToDisk(observation)
 						}
 
 						delete(timers[i][currentSlots[i]], key)

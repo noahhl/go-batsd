@@ -13,6 +13,13 @@ type Datapoint struct {
 	Datatype  string
 }
 
+type AggregateObservation struct {
+	Name      string
+	Content   string
+	Timestamp int64
+	RawName   string
+}
+
 func ParseDatapointFromString(metric string) Datapoint {
 	d := Datapoint{}
 	components := strings.Split(metric, ":")
