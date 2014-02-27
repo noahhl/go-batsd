@@ -32,7 +32,6 @@ func SetupDispatcher() {
 	dispatcher.redisChannel = make(chan AggregateObservation, channelBufferSize)
 	dispatcher.redisPool = &clamp.ConnectionPoolWrapper{}
 	dispatcher.redisPool.InitPool(redisPoolSize, openRedisConnection)
-
 	for i := 0; i < numDiskRoutines; i++ {
 		go func() {
 			for {
@@ -79,7 +78,7 @@ func (d *Dispatcher) writeToRedis(observation AggregateObservation) {
 }
 
 func (d *Dispatcher) writeToDisk(observation AggregateObservation) {
-	filename := calculateFilename(observation.Name, Config.Root)
+	filename := CalculateFilename(observation.Name, Config.Root)
 
 	file, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0600)
 	newFile := false
@@ -114,7 +113,7 @@ func (d *Dispatcher) writeToDisk(observation AggregateObservation) {
 	}
 }
 
-func calculateFilename(metric string, root string) string {
+func CalculateFilename(metric string, root string) string {
 	h := md5.New()
 	io.WriteString(h, metric)
 	metricHash := hex.EncodeToString(h.Sum([]byte{}))

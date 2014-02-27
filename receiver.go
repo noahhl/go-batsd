@@ -22,19 +22,18 @@ const numIncomingMessageProcessors = 100
 
 func main() {
 	gobatsd.LoadConfig()
+	runtime.GOMAXPROCS(runtime.NumCPU())
+	processingChannel := clamp.StartDualServer(":8125")
+	clamp.StartStatsServer(":8349")
+	gobatsd.SetupDispatcher()
 
+	gaugeHandler := gobatsd.NewGaugeHandler()
 	counterChannel = make(chan gobatsd.Datapoint, channelBufferSize)
 	timerChannel = make(chan gobatsd.Datapoint, channelBufferSize)
 	counterHeartbeat = make(chan int)
 	timerHeartbeat = make(chan int)
 
 	fmt.Printf("Starting on port %v\n", gobatsd.Config.Port)
-	runtime.GOMAXPROCS(runtime.NumCPU())
-
-	processingChannel := clamp.StartDualServer(":8125")
-	clamp.StartStatsServer(":8349")
-	gobatsd.SetupDispatcher()
-	gaugeHandler := gobatsd.NewGaugeHandler()
 
 	for i := 0; i < numIncomingMessageProcessors; i++ {
 		go func(processingChannel chan string) {
