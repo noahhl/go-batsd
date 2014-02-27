@@ -4,6 +4,8 @@ import (
 	"github.com/noahhl/Go-Redis"
 	"github.com/noahhl/clamp"
 	"math/rand"
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -84,4 +86,46 @@ func BenchmarkSavingToRedis(b *testing.B) {
 		obs := AggregateObservation{"test_metric", "12345<x>1", time.Now().Unix(), "1"}
 		d.writeToRedis(obs)
 	}
+}
+
+func TestSavingToDisk(t *testing.T) {
+	Config.Root = "/tmp/batsd"
+	Config.RedisHost = "127.0.0.1"
+	Config.RedisPort = 6379
+
+	obs := AggregateObservation{"test_metric", "12345 1\n", 1234, "1"}
+	obs2 := AggregateObservation{"test_metric", "123456 2\n", 1234, "1"}
+	d := Dispatcher{}
+	d.redisPool = &clamp.ConnectionPoolWrapper{}
+	d.redisPool.InitPool(redisPoolSize, openRedisConnection)
+
+	os.RemoveAll("/tmp/batsd")
+
+	d.writeToDisk(obs)
+	d.writeToDisk(obs2)
+
+	file, err := os.Open(CalculateFilename("test_metric", "/tmp/batsd"))
+	if err != nil {
+		t.Fatalf("%v\n", err)
+	}
+
+	buffer := make([]byte, 1024)
+	n, _ := file.Read(buffer)
+	vals := strings.Split(string(buffer[0:n]), "\n")
+	if vals[0] != "v2 test_metric" {
+		t.Errorf("Expected first line of file to list name of metric, was %v\n", vals[0])
+	}
+
+	if vals[1] != "12345 1" {
+		t.Errorf("Expected second line of file to list timestamp and value, was '%v'\n", vals[1])
+	}
+	if vals[1] != "12345 1" {
+		t.Errorf("Expected second line of file to list timestamp and value, was '%v'\n", vals[1])
+	}
+	if vals[2] != "123456 2" {
+		t.Errorf("Expected third line of file to list timestamp and value, was '%v'\n", vals[2])
+	}
+
+	file.Close()
+
 }
