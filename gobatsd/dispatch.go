@@ -1,6 +1,8 @@
 package gobatsd
 
 import (
+	"github.com/noahhl/clamp"
+
 	"bufio"
 	"fmt"
 	"github.com/noahhl/Go-Redis"
@@ -12,7 +14,11 @@ import (
 type Dispatcher struct {
 	diskChannel  chan AggregateObservation
 	redisChannel chan AggregateObservation
+	redisPool    *clamp.ConnectionPoolWrapper
 }
+
+var numRedisRoutines = 50
+var redisPoolSize = 20
 
 var dispatcher Dispatcher
 
@@ -20,6 +26,8 @@ func SetupDispatcher() {
 	dispatcher = Dispatcher{}
 	dispatcher.diskChannel = make(chan AggregateObservation, channelBufferSize)
 	dispatcher.redisChannel = make(chan AggregateObservation, channelBufferSize)
+	dispatcher.redisPool = &clamp.ConnectionPoolWrapper{}
+	dispatcher.redisPool.InitPool(redisPoolSize, connectToRedis)
 	go dispatcher.writeToDisk()
 	dispatcher.writeToRedis()
 }
@@ -32,21 +40,29 @@ func StoreInRedis(observation AggregateObservation) {
 	dispatcher.redisChannel <- observation
 }
 
-func (d *Dispatcher) RecordMetric(name string) {
+func connectToRedis() (interface{}, error) {
 	spec := redis.DefaultSpec().Host(Config.RedisHost).Port(Config.RedisPort)
-	redis, _ := redis.NewSynchClientWithSpec(spec)
-	redis.Sadd("datapoints", []byte(name))
+	r, err := redis.NewSynchClientWithSpec(spec)
+	return r, err
+}
+
+func (d *Dispatcher) RecordMetric(name string) {
+	r := d.redisPool.GetConnection().(redis.Client)
+	defer d.redisPool.ReleaseConnection(r)
+	r.Sadd("datapoints", []byte(name))
 }
 
 func (d *Dispatcher) writeToRedis() {
-	go func() {
-		spec := redis.DefaultSpec().Host(Config.RedisHost).Port(Config.RedisPort)
-		redis, _ := redis.NewSynchClientWithSpec(spec)
-		for {
-			observation := <-d.redisChannel
-			redis.Zadd(observation.Name, float64(observation.Timestamp), []byte(observation.Content))
-		}
-	}()
+	for i := 0; i < numRedisRoutines; i++ {
+		go func() {
+			for {
+				observation := <-d.redisChannel
+				r := d.redisPool.GetConnection().(redis.Client)
+				defer d.redisPool.ReleaseConnection(r)
+				r.Zadd(observation.Name, float64(observation.Timestamp), []byte(observation.Content))
+			}
+		}()
+	}
 
 }
 
