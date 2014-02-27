@@ -4,8 +4,11 @@ import (
 	"github.com/noahhl/clamp"
 
 	"bufio"
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"github.com/noahhl/Go-Redis"
+	"io"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -76,7 +79,7 @@ func (d *Dispatcher) writeToRedis(observation AggregateObservation) {
 }
 
 func (d *Dispatcher) writeToDisk(observation AggregateObservation) {
-	filename := CalculateFilename(observation.Name, Config.Root)
+	filename := calculateFilename(observation.Name, Config.Root)
 
 	file, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0600)
 	newFile := false
@@ -109,4 +112,11 @@ func (d *Dispatcher) writeToDisk(observation AggregateObservation) {
 		file.Close()
 
 	}
+}
+
+func calculateFilename(metric string, root string) string {
+	h := md5.New()
+	io.WriteString(h, metric)
+	metricHash := hex.EncodeToString(h.Sum([]byte{}))
+	return root + "/" + metricHash[0:2] + "/" + metricHash[2:4] + "/" + metricHash
 }
