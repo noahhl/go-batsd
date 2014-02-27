@@ -54,7 +54,19 @@ func main() {
 	clamp.StartStatsServer(":8349")
 
 	for i := 0; i < numIncomingMessageProcessors; i++ {
-		launchMessageProcessor(processingChannel)
+		go func(processingChannel chan string) {
+			for {
+				message := <-processingChannel
+				d := gobatsd.ParseDatapointFromString(message)
+				if d.Datatype == "g" {
+					gaugeChannel <- d
+				} else if d.Datatype == "c" {
+					counterChannel <- d
+				} else if d.Datatype == "ms" {
+					timerChannel <- d
+				}
+			}
+		}(processingChannel)
 	}
 	go runHeartbeat()
 
@@ -77,26 +89,6 @@ func runHeartbeat() {
 			counterHeartbeat <- 1
 			timerHeartbeat <- 1
 		}
-	}
-}
-
-func launchMessageProcessor(ch chan string) {
-	go func(channel chan string) {
-		for {
-			message := <-channel
-			processIncomingMessage(message)
-		}
-	}(ch)
-}
-
-func processIncomingMessage(message string) {
-	d := gobatsd.ParseDatapointFromString(message)
-	if d.Datatype == "g" {
-		gaugeChannel <- d
-	} else if d.Datatype == "c" {
-		counterChannel <- d
-	} else if d.Datatype == "ms" {
-		timerChannel <- d
 	}
 }
 
