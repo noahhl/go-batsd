@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+   "../clamp"
+  
 	"github.com/noahhl/Go-Redis"
 	"github.com/reusee/mmh3"
 )
@@ -39,7 +41,6 @@ var redisAppendChannel chan AggregateObservation
 var timerHeartbeat chan int
 var counterHeartbeat chan int
 
-const readLen = 65536
 const channelBufferSize = 10000
 const heartbeatInterval = 1
 const numIncomingMessageProcessors = 100
@@ -59,19 +60,17 @@ func main() {
 	diskAppendChannel = appendToFile(datapointChannel)
 	redisAppendChannel = addToRedisZset()
 
-	processingChannel := make(chan string, channelBufferSize)
-	for i := 0; i < numIncomingMessageProcessors; i++ {
+  processingChannel := clamp.StartDualServer(":8125")
+
+  for i := 0; i < numIncomingMessageProcessors; i++ {
 		launchMessageProcessor(processingChannel)
 	}
-
+  clamp.StartStatsServer(":8349")
 	go runHeartbeat()
 
 	go processGauges(gaugeChannel)
 	go processCounters(counterChannel)
 	go processTimers(timerChannel)
-
-	go bindUDP(processingChannel)
-	go bindTCP(processingChannel)
 
 	c := make(chan int)
 	for {
@@ -89,73 +88,6 @@ func runHeartbeat() {
 			timerHeartbeat <- 1
 		}
 	}
-}
-
-func bindUDP(processingChannel chan string) {
-
-	server, err := net.ListenPacket("udp", ":"+gobatsd.Config.Port)
-	defer server.Close()
-	if err != nil {
-		panic(err)
-	}
-
-	buffer := make([]byte, readLen)
-	for {
-		n, _, err := server.ReadFrom(buffer)
-		if err != nil {
-			continue
-		}
-		payload := string(buffer[0:n])
-		messages := strings.Split(payload, "\n")
-		for i := range messages {
-			if messages[i] != "" {
-				select {
-				case processingChannel <- strings.TrimSpace(strings.Replace(messages[i], "\n", "", -1)):
-				default:
-				}
-			}
-
-		}
-	}
-}
-
-func bindTCP(processingChannel chan string) {
-
-	server, err := net.Listen("tcp", ":"+gobatsd.Config.Port)
-	if err != nil {
-		panic(err)
-	}
-	conns := clientTCPConns(server)
-	for {
-		go func(client net.Conn) {
-			b := bufio.NewReader(client)
-			for {
-				line, err := b.ReadBytes('\n')
-				if err != nil {
-					return
-				}
-				select {
-				case processingChannel <- strings.TrimSpace(strings.Replace(string(line), "\n", "", -1)):
-				default:
-				}
-			}
-		}(<-conns)
-	}
-}
-
-func clientTCPConns(listener net.Listener) chan net.Conn {
-	ch := make(chan net.Conn)
-	go func() {
-		for {
-			client, err := listener.Accept()
-			if client == nil {
-				fmt.Printf("couldn't accept: %v", err)
-				continue
-			}
-			ch <- client
-		}
-	}()
-	return ch
 }
 
 func launchMessageProcessor(ch chan string) {
