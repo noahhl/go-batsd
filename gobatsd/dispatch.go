@@ -28,7 +28,7 @@ func SetupDispatcher() {
 	dispatcher.diskChannel = make(chan AggregateObservation, channelBufferSize)
 	dispatcher.redisChannel = make(chan AggregateObservation, channelBufferSize)
 	dispatcher.redisPool = &clamp.ConnectionPoolWrapper{}
-	dispatcher.redisPool.InitPool(redisPoolSize, connectToRedis)
+	dispatcher.redisPool.InitPool(redisPoolSize, openRedisConnection)
 
 	for i := 0; i < numDiskRoutines; i++ {
 		go func() {
@@ -57,7 +57,7 @@ func StoreInRedis(observation AggregateObservation) {
 	dispatcher.redisChannel <- observation
 }
 
-func connectToRedis() (interface{}, error) {
+func openRedisConnection() (interface{}, error) {
 	spec := redis.DefaultSpec().Host(Config.RedisHost).Port(Config.RedisPort)
 	r, err := redis.NewSynchClientWithSpec(spec)
 	return r, err
