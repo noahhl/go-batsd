@@ -42,3 +42,32 @@ func TestRecordingMetric(t *testing.T) {
 	}
 
 }
+
+func TestSavingToRedis(t *testing.T) {
+	Config.RedisHost = "127.0.0.1"
+	Config.RedisPort = 6379
+
+	d := Dispatcher{}
+	d.redisPool = &clamp.ConnectionPoolWrapper{}
+	d.redisPool.InitPool(redisPoolSize, openRedisConnection)
+
+	r := d.redisPool.GetConnection().(redis.Client)
+	defer d.redisPool.ReleaseConnection(r)
+
+	r.Del("test_metric")
+	obs := AggregateObservation{"test_metric", "12345<x>1", 1234, "1"}
+	d.writeToRedis(obs)
+
+	if ok, _ := r.Exists("test_metric"); !ok {
+		t.Errorf("Metric was not saved.\n")
+	}
+
+	if n, _ := r.Zcard("test_metric"); n != 1 {
+		t.Errorf("Expected 1 value, got %v\n", n)
+	}
+
+	if vals, _ := r.Zrange("test_metric", 0, 1); string(vals[0]) != "12345<x>1" {
+		t.Errorf("Expected value to be %v, was %v\n", obs.Content, string(vals[0]))
+	}
+
+}
