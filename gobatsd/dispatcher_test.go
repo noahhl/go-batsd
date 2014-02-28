@@ -84,8 +84,11 @@ func BenchmarkSavingToRedis(b *testing.B) {
 	d := Dispatcher{}
 	d.redisPool = &clamp.ConnectionPoolWrapper{}
 	d.redisPool.InitPool(redisPoolSize, openRedisConnection)
+	b.ResetTimer()
 	for j := 0; j < b.N; j++ {
-		obs := AggregateObservation{"test_metric", "12345<x>1", time.Now().Unix(), "1"}
+		now := time.Now().UnixNano()
+		val := rand.Intn(1000)
+		obs := AggregateObservation{metric_samples[rand.Intn(len(metric_samples))], fmt.Sprintf("%v<X>%v", now, val), now, "1"}
 		d.writeToRedis(obs)
 	}
 }
@@ -141,7 +144,7 @@ func BenchmarkSavingToDisk(b *testing.B) {
 	d.redisPool = &clamp.ConnectionPoolWrapper{}
 	d.redisPool.InitPool(redisPoolSize, openRedisConnection)
 	os.RemoveAll("/tmp/batsd")
-
+	b.ResetTimer()
 	for j := 0; j < b.N; j++ {
 		val := rand.Intn(1000)
 		o := AggregateObservation{metric_samples[rand.Intn(len(metric_samples))], fmt.Sprintf("%v %v\n", time.Now().Unix(), val), time.Now().Unix(), ""}
@@ -156,7 +159,7 @@ func BenchmarkRedisPool(b *testing.B) {
 	d := Dispatcher{}
 	d.redisPool = &clamp.ConnectionPoolWrapper{}
 	d.redisPool.InitPool(redisPoolSize, openRedisConnection)
-
+	b.ResetTimer()
 	for j := 0; j < b.N; j++ {
 		r := d.redisPool.GetConnection().(redis.Client)
 		d.redisPool.ReleaseConnection(r)
