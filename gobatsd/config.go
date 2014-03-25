@@ -10,6 +10,7 @@ import (
 
 type Retention struct {
 	Interval, Count, Duration int64
+	Index                     int
 }
 
 type Configuration struct {
@@ -47,7 +48,7 @@ func LoadConfig() {
 		parts := strings.Split(retention, " ")
 		d, _ := strconv.ParseInt(parts[0], 0, 64)
 		n, _ := strconv.ParseInt(parts[1], 0, 64)
-		retentions[i] = Retention{d, n, d * n}
+		retentions[i] = Retention{d, n, d * n, i}
 	}
 	p, _ := c.Get("redis.port")
 	redisPort, _ := strconv.Atoi(p)

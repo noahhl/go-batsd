@@ -67,62 +67,24 @@ func runHeartbeat() {
 	for {
 		select {
 		case <-ticker.C:
-			counterHeartbeat <- 1
 			timerHeartbeat <- 1
 		}
 	}
 }
 
-type Counter struct {
-	Key   string
-	Value float64
-}
-
 func processCounters(ch chan gobatsd.Datapoint) {
-	currentSlots := make([]int64, len(gobatsd.Config.Retentions))
-	maxSlots := make([]int64, len(gobatsd.Config.Retentions))
-	for i := range gobatsd.Config.Retentions {
-		currentSlots[i] = 0
-		maxSlots[i] = gobatsd.Config.Retentions[i].Interval / heartbeatInterval
-	}
-
-	counters := make([][]map[string]float64, len(gobatsd.Config.Retentions))
-	for i := range counters {
-		counters[i] = make([]map[string]float64, maxSlots[i])
-		for j := range counters[i] {
-			counters[i][j] = make(map[string]float64)
-		}
-	}
+	counters := make(map[string]*gobatsd.Counter)
 
 	for {
 		select {
 		case d := <-ch:
-			//fmt.Printf("Processing counter %v with value %v and timestamp %v \n", d.Name, d.Value, d.Timestamp)
-			for i := range gobatsd.Config.Retentions {
-				hashSlot := int64(mmh3.Hash32([]byte(d.Name))) % maxSlots[i]
-				counters[i][hashSlot][d.Name] += d.Value
-			}
-
-		case <-counterHeartbeat:
-			for i := range currentSlots {
-				timestamp := time.Now().Unix() - (time.Now().Unix() % gobatsd.Config.Retentions[i].Interval)
-				for key, value := range counters[i][currentSlots[i]] {
-					if value > 0 {
-						if i == 0 { //Store to redis
-							observation := gobatsd.AggregateObservation{"counters:" + key, fmt.Sprintf("%d<X>%v", timestamp, value), timestamp, "counters:" + key}
-							gobatsd.StoreInRedis(observation)
-						} else {
-							observation := gobatsd.AggregateObservation{"counters:" + key + ":" + strconv.FormatInt(gobatsd.Config.Retentions[i].Interval, 10), fmt.Sprintf("%d %v\n", timestamp, value), timestamp, "counters:" + key}
-							gobatsd.StoreOnDisk(observation)
-						}
-						delete(counters[i][currentSlots[i]], key)
-					}
-				}
-
-				currentSlots[i] += 1
-				if currentSlots[i] == maxSlots[i] {
-					currentSlots[i] = 0
-				}
+			if counter, ok := counters[d.Name]; ok {
+				counter.Increment(d.Value)
+			} else {
+				counter := gobatsd.NewCounter(d.Name)
+				counter.Start()
+				counters[d.Name] = counter
+				counter.Increment(d.Value)
 			}
 		}
 	}

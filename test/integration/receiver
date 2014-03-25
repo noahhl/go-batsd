@@ -40,7 +40,7 @@ begin
   # Counters
   puts "Executing counters test"
   udp_client.send "test:1|c", 0
-  sleep 2
+  sleep 3
   udp_client.send "test:1|c", 0
   sleep 10
 
@@ -80,7 +80,7 @@ begin
   udp_client.send "test:4|ms", 0
   udp_client.send "test:5|ms", 0
 
-  sleep 8
+  sleep 10
   hash = Digest::MD5.hexdigest("timers:test:6:2")
   vals = File.read("/tmp/batsd/#{hash[0..1]}/#{hash[2..3]}/#{hash}")  
   measurements = vals.split("\n").last.split(" ").last.split("/").map(&:to_f)
