@@ -5,9 +5,7 @@ import (
 	"github.com/noahhl/go-batsd/gobatsd"
 
 	"fmt"
-	"github.com/reusee/mmh3"
 	"runtime"
-	"strconv"
 	"time"
 )
 
@@ -92,66 +90,19 @@ func processCounters(ch chan gobatsd.Datapoint) {
 
 func processTimers(ch chan gobatsd.Datapoint) {
 
-	currentSlots := make([]int64, len(gobatsd.Config.Retentions))
-	maxSlots := make([]int64, len(gobatsd.Config.Retentions))
-	for i := range gobatsd.Config.Retentions {
-		currentSlots[i] = 0
-		maxSlots[i] = gobatsd.Config.Retentions[i].Interval / heartbeatInterval
-	}
-
-	timers := make([][]map[string][]float64, len(gobatsd.Config.Retentions))
-	for i := range timers {
-		timers[i] = make([]map[string][]float64, maxSlots[i])
-		for j := range timers[i] {
-			timers[i][j] = make(map[string][]float64)
-		}
-	}
+	timers := make(map[string]*gobatsd.Timer)
 
 	for {
 		select {
 		case d := <-ch:
-			//fmt.Printf("Processing timer %v with value %v and timestamp %v \n", d.Name, d.Value, d.Timestamp)
-			for i := range gobatsd.Config.Retentions {
-				hashSlot := int64(mmh3.Hash32([]byte(d.Name))) % maxSlots[i]
-				timers[i][hashSlot][d.Name] = append(timers[i][hashSlot][d.Name], d.Value)
+			if timer, ok := timers[d.Name]; ok {
+				timer.Update(d.Value)
+			} else {
+				timer := gobatsd.NewTimer(d.Name)
+				timer.Start()
+				timers[d.Name] = timer
+				timer.Update(d.Value)
 			}
-		case <-timerHeartbeat:
-			for i := range currentSlots {
-				//fmt.Printf("%v %v %v\n", i, currentSlots[i], timers[i][currentSlots[i]])
-
-				timestamp := time.Now().Unix() - (time.Now().Unix() % gobatsd.Config.Retentions[i].Interval)
-
-				for key, value := range timers[i][currentSlots[i]] {
-					if len(value) > 0 {
-						count := len(value)
-						min := gobatsd.Min(value)
-						max := gobatsd.Max(value)
-						median := gobatsd.Median(value)
-						mean := gobatsd.Mean(value)
-						stddev := gobatsd.Stddev(value)
-						percentile_90 := gobatsd.Percentile(value, 0.9)
-						percentile_95 := gobatsd.Percentile(value, 0.95)
-						percentile_99 := gobatsd.Percentile(value, 0.99)
-
-						aggregates := fmt.Sprintf("%v/%v/%v/%v/%v/%v/%v/%v/%v", count, min, max, median, mean, stddev, percentile_90, percentile_95, percentile_99)
-						if i == 0 { //Store to redis
-							observation := gobatsd.AggregateObservation{"timers:" + key, fmt.Sprintf("%d<X>%v", timestamp, aggregates), timestamp, "timers:" + key}
-							gobatsd.StoreInRedis(observation)
-						} else { // Store to disk
-							observation := gobatsd.AggregateObservation{"timers:" + key + ":" + strconv.FormatInt(gobatsd.Config.Retentions[i].Interval, 10) + ":2", fmt.Sprintf("%d %v\n", timestamp, aggregates), timestamp, "timers:" + key}
-							gobatsd.StoreOnDisk(observation)
-						}
-
-						delete(timers[i][currentSlots[i]], key)
-					}
-				}
-
-				currentSlots[i] += 1
-				if currentSlots[i] == maxSlots[i] {
-					currentSlots[i] = 0
-				}
-			}
-
 		}
 	}
 }
