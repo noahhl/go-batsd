@@ -3,14 +3,12 @@ package gobatsd
 import (
 	"strconv"
 	"strings"
-	"time"
 )
 
 type Datapoint struct {
-	Timestamp time.Time
-	Name      string
-	Value     float64
-	Datatype  string
+	Name     string
+	Value    float64
+	Datatype string
 }
 
 type AggregateObservation struct {
@@ -31,7 +29,7 @@ func ParseDatapointFromString(metric string) Datapoint {
 				sample_rate, _ := strconv.ParseFloat(strings.Replace(latter_components[2], "@", "", -1), 64)
 				value = value / sample_rate
 			}
-			d = Datapoint{time.Now(), components[0], value, latter_components[1]}
+			d = Datapoint{components[0], value, latter_components[1]}
 		}
 	}
 	return d
