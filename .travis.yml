@@ -1,9 +1,8 @@
 language: go
-
 go:
   - 1.2
   - tip
-
-install: gem install redis
-
+install: 
+  - go get -d -v ./...
+  - gem install redis
 script: make check
