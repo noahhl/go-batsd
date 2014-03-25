@@ -21,7 +21,8 @@ package:
 	fpm -s dir -t deb -n go-batsd -v ${VERSION} --prefix /usr/local/go-batsd bin
 
 check:
-	go test ./test/*_test.go
+	go test ./gobatsd
+	./test/integration/receiver
 
 bench:
 	go test -bench=".*" ./test/*_test.go
