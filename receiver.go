@@ -6,13 +6,10 @@ import (
 
 	"fmt"
 	"runtime"
-	"time"
 )
 
 var counterChannel chan gobatsd.Datapoint
 var timerChannel chan gobatsd.Datapoint
-var timerHeartbeat chan int
-var counterHeartbeat chan int
 
 const channelBufferSize = 10000
 const heartbeatInterval = 1
@@ -28,8 +25,6 @@ func main() {
 	gaugeHandler := gobatsd.NewGaugeHandler()
 	counterChannel = make(chan gobatsd.Datapoint, channelBufferSize)
 	timerChannel = make(chan gobatsd.Datapoint, channelBufferSize)
-	counterHeartbeat = make(chan int)
-	timerHeartbeat = make(chan int)
 
 	fmt.Printf("Starting on port %v\n", gobatsd.Config.Port)
 
@@ -49,7 +44,6 @@ func main() {
 		}(processingChannel)
 	}
 
-	go runHeartbeat()
 	go processCounters(counterChannel)
 	go processTimers(timerChannel)
 
@@ -58,16 +52,6 @@ func main() {
 		<-c
 	}
 
-}
-
-func runHeartbeat() {
-	ticker := time.NewTicker(1 * time.Second)
-	for {
-		select {
-		case <-ticker.C:
-			timerHeartbeat <- 1
-		}
-	}
 }
 
 func processCounters(ch chan gobatsd.Datapoint) {
