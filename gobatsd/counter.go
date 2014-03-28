@@ -33,7 +33,7 @@ func (c *Counter) Start() {
 				select {
 				case now := <-ticker.C:
 					//fmt.Printf("%v: Time to save %v at retention %v\n", now, c.Key, retention)
-					c.Save(retention, now)
+					c.save(retention, now)
 				case val := <-c.channels[retention.Index]:
 					c.Values[retention.Index] += val
 				}
@@ -43,13 +43,13 @@ func (c *Counter) Start() {
 	}
 }
 
-func (c *Counter) Increment(value float64) {
+func (c *Counter) Update(value float64) {
 	for i := range c.channels {
 		c.channels[i] <- value
 	}
 }
 
-func (c *Counter) Save(retention Retention, now time.Time) {
+func (c *Counter) save(retention Retention, now time.Time) {
 	aggregateValue := c.Values[retention.Index]
 	c.Values[retention.Index] = 0
 	timestamp := now.Unix() - now.Unix()%retention.Interval

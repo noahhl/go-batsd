@@ -37,7 +37,7 @@ func (t *Timer) Start() {
 				select {
 				case now := <-ticker.C:
 					//fmt.Printf("%v: Time to save %v at retention %v\n", now, c.Key, retention)
-					t.Save(retention, now)
+					t.save(retention, now)
 				case val := <-t.channels[retention.Index]:
 					t.Values[retention.Index] = append(t.Values[retention.Index], val)
 				}
@@ -53,7 +53,7 @@ func (t *Timer) Update(value float64) {
 	}
 }
 
-func (t *Timer) Save(retention Retention, now time.Time) {
+func (t *Timer) save(retention Retention, now time.Time) {
 	values := t.Values[retention.Index]
 	t.Values[retention.Index] = make([]float64, 0)
 	timestamp := now.Unix() - now.Unix()%retention.Interval

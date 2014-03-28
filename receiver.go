@@ -77,12 +77,12 @@ func processCounters(ch chan gobatsd.Datapoint) {
 		select {
 		case d := <-ch:
 			if counter, ok := counters[d.Name]; ok {
-				counter.Increment(d.Value)
+				counter.Update(d.Value)
 			} else {
 				counter := gobatsd.NewCounter(d.Name)
 				counter.Start()
 				counters[d.Name] = counter
-				counter.Increment(d.Value)
+				counter.Update(d.Value)
 			}
 		}
 	}
