@@ -9,6 +9,7 @@ import (
 )
 
 var counterChannel chan gobatsd.Datapoint
+var gaugeChannel chan gobatsd.Datapoint
 var timerChannel chan gobatsd.Datapoint
 
 const channelBufferSize = 10000
@@ -22,28 +23,26 @@ func main() {
 	clamp.StartStatsServer(":8349")
 	gobatsd.SetupDispatcher()
 
-	gaugeHandler := gobatsd.NewGaugeHandler()
+	gaugeChannel = make(chan gobatsd.Datapoint, channelBufferSize)
 	counterChannel = make(chan gobatsd.Datapoint, channelBufferSize)
 	timerChannel = make(chan gobatsd.Datapoint, channelBufferSize)
 
 	fmt.Printf("Starting on port %v\n", gobatsd.Config.Port)
+	channels := map[string]chan gobatsd.Datapoint{"g": gaugeChannel, "c": counterChannel, "ms": timerChannel}
 
 	for i := 0; i < numIncomingMessageProcessors; i++ {
 		go func(processingChannel chan string) {
 			for {
 				message := <-processingChannel
 				d := gobatsd.ParseDatapointFromString(message)
-				if d.Datatype == "g" {
-					gaugeHandler.ProcessNewDatapoint(d)
-				} else if d.Datatype == "c" {
-					counterChannel <- d
-				} else if d.Datatype == "ms" {
-					timerChannel <- d
+				if ch, ok := channels[d.Datatype]; ok {
+					ch <- d
 				}
 			}
 		}(processingChannel)
 	}
 
+	go processGauges(gaugeChannel)
 	go processCounters(counterChannel)
 	go processTimers(timerChannel)
 
@@ -54,6 +53,23 @@ func main() {
 
 }
 
+func processGauges(ch chan gobatsd.Datapoint) {
+	gauges := make(map[string]*gobatsd.Gauge)
+
+	for {
+		select {
+		case d := <-ch:
+			if gauge, ok := gauges[d.Name]; ok {
+				gauge.Update(d.Value)
+			} else {
+				gauge := gobatsd.NewGauge(d.Name)
+				gauge.Start()
+				gauges[d.Name] = gauge
+				gauge.Update(d.Value)
+			}
+		}
+	}
+}
 func processCounters(ch chan gobatsd.Datapoint) {
 	counters := make(map[string]*gobatsd.Counter)
 

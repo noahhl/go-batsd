@@ -5,19 +5,22 @@ import (
 	"time"
 )
 
-type GaugeHandler struct {
-	ch chan Datapoint
+type Gauge struct {
+	Key string
 }
 
-func NewGaugeHandler() *GaugeHandler {
-	h := GaugeHandler{}
-	h.ch = make(chan Datapoint, channelBufferSize)
+const gaugeInternalBufferSize = 10
 
-	return &h
+func NewGauge(name string) *Gauge {
+	g := &Gauge{}
+	g.Key = name
+	return g
 }
 
-func (g *GaugeHandler) ProcessNewDatapoint(d Datapoint) {
-	//fmt.Printf("Processing gauge %v with value %v and timestamp %v \n", d.Name, d.Value, d.Timestamp)
-	observation := AggregateObservation{"gauges:" + d.Name, fmt.Sprintf("%d %v\n", time.Now().Unix(), d.Value), 0, "gauges:" + d.Name}
+func (g *Gauge) Start() {
+}
+
+func (g *Gauge) Update(value float64) {
+	observation := AggregateObservation{"gauges:" + g.Key, fmt.Sprintf("%d %v\n", time.Now().Unix(), value), 0, "gauges:" + g.Key}
 	StoreOnDisk(observation)
 }
