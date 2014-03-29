@@ -179,7 +179,7 @@ func handleConn(client net.Conn) {
 				} else if metricIsCounter(metric) {
 					metric = metric + ":" + strconv.FormatInt(retention.Interval, 10)
 				}
-				filePath := (&gobatsd.Datastore{}).CalculateFilename(metric, gobatsd.Config.Root)
+				filePath := gobatsd.CalculateFilename(metric, gobatsd.Config.Root)
 				file, err := os.Open(filePath)
 				values := make([]Datapoint, 0)
 				if err == nil {

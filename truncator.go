@@ -94,7 +94,7 @@ func main() {
 }
 
 func TruncateOnDisk(metric string, since float64) {
-	filePath := (&gobatsd.Datastore{}).CalculateFilename(metric, gobatsd.Config.Root)
+	filePath := gobatsd.CalculateFilename(metric, gobatsd.Config.Root)
 	file, err := os.Open(filePath)
 	tmpfile, writeErr := os.Create(filePath + "tmp")
 	if writeErr != nil {

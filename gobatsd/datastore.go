@@ -15,16 +15,14 @@ import (
 )
 
 type Datastore struct {
-	diskChannel     chan AggregateObservation
-	redisChannel    chan AggregateObservation
-	redisPool       *clamp.ConnectionPoolWrapper
-	hashedFilenames map[string]string
+	diskChannel  chan AggregateObservation
+	redisChannel chan AggregateObservation
+	redisPool    *clamp.ConnectionPoolWrapper
 }
 
 var numRedisRoutines = 50
 var numDiskRoutines = 50
 var redisPoolSize = 20
-var filenameHashMapSize = 50
 
 var datastore Datastore
 
@@ -51,7 +49,6 @@ func SetupDatastore() {
 			}
 		}()
 	}
-	datastore.hashedFilenames = make(map[string]string, filenameHashMapSize)
 }
 
 func StoreOnDisk(observation AggregateObservation) {
@@ -81,7 +78,7 @@ func (d *Datastore) writeToRedis(observation AggregateObservation) {
 }
 
 func (d *Datastore) writeToDisk(observation AggregateObservation) {
-	filename := d.CalculateFilename(observation.Name, Config.Root)
+	filename := CalculateFilename(observation.Name, Config.Root)
 
 	file, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0600)
 	newFile := false
@@ -116,15 +113,9 @@ func (d *Datastore) writeToDisk(observation AggregateObservation) {
 	}
 }
 
-func (d *Datastore) CalculateFilename(metric string, root string) string {
-	if path, ok := d.hashedFilenames[metric]; ok {
-		return path
-	} else {
-		h := md5.New()
-		io.WriteString(h, metric)
-		metricHash := hex.EncodeToString(h.Sum([]byte{}))
-		path := root + "/" + metricHash[0:2] + "/" + metricHash[2:4] + "/" + metricHash
-		d.hashedFilenames[metric] = path
-		return path
-	}
+func CalculateFilename(metric string, root string) string {
+	h := md5.New()
+	io.WriteString(h, metric)
+	metricHash := hex.EncodeToString(h.Sum([]byte{}))
+	return root + "/" + metricHash[0:2] + "/" + metricHash[2:4] + "/" + metricHash
 }
