@@ -11,6 +11,7 @@ type Timer struct {
 	Key      string
 	Values   [][]float64
 	channels []chan float64
+	Paths    []string
 }
 
 const timerInternalBufferSize = 10
@@ -26,6 +27,10 @@ func NewTimer(name string) Metric {
 	t.channels = make([]chan float64, len(Config.Retentions))
 	for i := range t.channels {
 		t.channels[i] = make(chan float64, timerInternalBufferSize)
+	}
+	t.Paths = make([]string, len(Config.Retentions))
+	for i := range t.Paths {
+		t.Paths[i] = CalculateFilename(fmt.Sprintf("timers:%v:%v:%v", t.Key, Config.Retentions[i].Interval, timerVersion), Config.Root)
 	}
 	t.Start()
 	return t
@@ -77,10 +82,10 @@ func (t *Timer) save(retention Retention, now time.Time) {
 	aggregates := fmt.Sprintf("%v/%v/%v/%v/%v/%v/%v/%v/%v", count, min, max, median, mean, stddev, percentile_90, percentile_95, percentile_99)
 
 	if retention.Index == 0 {
-		observation := AggregateObservation{"timers:" + t.Key, fmt.Sprintf("%d<X>%v", timestamp, aggregates), timestamp, "timers:" + t.Key}
+		observation := AggregateObservation{"timers:" + t.Key, fmt.Sprintf("%d<X>%v", timestamp, aggregates), timestamp, "timers:" + t.Key, ""}
 		StoreInRedis(observation)
 	} else {
-		observation := AggregateObservation{"timers:" + t.Key + ":" + strconv.FormatInt(retention.Interval, 10) + ":" + timerVersion, fmt.Sprintf("%d %v\n", timestamp, aggregates), timestamp, "timers:" + t.Key}
+		observation := AggregateObservation{"timers:" + t.Key + ":" + strconv.FormatInt(retention.Interval, 10) + ":" + timerVersion, fmt.Sprintf("%d %v\n", timestamp, aggregates), timestamp, "timers:" + t.Key, t.Paths[retention.Index]}
 		StoreOnDisk(observation)
 	}
 }

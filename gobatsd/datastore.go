@@ -89,20 +89,19 @@ func (d *Datastore) writeToRedis(observation AggregateObservation) {
 }
 
 func (d *Datastore) writeToDisk(observation AggregateObservation) {
-	filename := CalculateFilename(observation.Name, Config.Root)
 
-	file, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0600)
+	file, err := os.OpenFile(observation.Path, os.O_APPEND|os.O_WRONLY, 0600)
 	newFile := false
 	if err != nil {
 		if e, ok := err.(*os.PathError); ok && e.Err == syscall.ENOENT {
 			//fmt.Printf("Creating %v\n", filename)
 			//Make containing directories if they don't exist
-			err = os.MkdirAll(filepath.Dir(filename), 0755)
+			err = os.MkdirAll(filepath.Dir(observation.Path), 0755)
 			if err != nil {
 				fmt.Printf("%v", err)
 			}
 
-			file, err = os.Create(filename)
+			file, err = os.Create(observation.Path)
 			if err != nil {
 				fmt.Printf("%v", err)
 			}

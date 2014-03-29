@@ -11,6 +11,7 @@ type Counter struct {
 	Key      string
 	Values   []float64
 	channels []chan float64
+	Paths    []string
 }
 
 const counterInternalBufferSize = 10
@@ -22,6 +23,10 @@ func NewCounter(name string) Metric {
 	c.channels = make([]chan float64, len(Config.Retentions))
 	for i := range c.channels {
 		c.channels[i] = make(chan float64, counterInternalBufferSize)
+	}
+	c.Paths = make([]string, len(Config.Retentions))
+	for i := range c.Paths {
+		c.Paths[i] = CalculateFilename(fmt.Sprintf("counters:%v:%v", c.Key, Config.Retentions[i].Interval), Config.Root)
 	}
 	c.Start()
 	return c
@@ -62,10 +67,10 @@ func (c *Counter) save(retention Retention, now time.Time) {
 	}
 
 	if retention.Index == 0 {
-		observation := AggregateObservation{"counters:" + c.Key, fmt.Sprintf("%d<X>%v", timestamp, aggregateValue), timestamp, "counters:" + c.Key}
+		observation := AggregateObservation{"counters:" + c.Key, fmt.Sprintf("%d<X>%v", timestamp, aggregateValue), timestamp, "counters:" + c.Key, ""}
 		StoreInRedis(observation)
 	} else {
-		observation := AggregateObservation{"counters:" + c.Key + ":" + strconv.FormatInt(retention.Interval, 10), fmt.Sprintf("%d %v\n", timestamp, aggregateValue), timestamp, "counters:" + c.Key}
+		observation := AggregateObservation{"counters:" + c.Key + ":" + strconv.FormatInt(retention.Interval, 10), fmt.Sprintf("%d %v\n", timestamp, aggregateValue), timestamp, "counters:" + c.Key, c.Paths[retention.Index]}
 		StoreOnDisk(observation)
 	}
 }

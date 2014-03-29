@@ -16,6 +16,7 @@ type AggregateObservation struct {
 	Content   string
 	Timestamp int64
 	RawName   string
+	Path      string
 }
 
 func ParseDatapointFromString(metric string) Datapoint {
