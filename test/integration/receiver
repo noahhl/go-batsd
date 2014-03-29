@@ -40,9 +40,9 @@ begin
   # Counters
   puts "Executing counters test"
   udp_client.send "test:1|c", 0
-  sleep 3
+  sleep 5
   udp_client.send "test:1|c", 0
-  sleep 10
+  sleep 15
 
   vals = redis.zrange "counters:test", 0, 10
   if vals.count != 2 || vals.last.split("<X>").last.to_i != 1

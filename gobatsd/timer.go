@@ -2,6 +2,7 @@ package gobatsd
 
 import (
 	"fmt"
+	"math/rand"
 	"strconv"
 	"time"
 )
@@ -32,10 +33,11 @@ func NewTimer(name string) Metric {
 func (t *Timer) Start() {
 	for i := range Config.Retentions {
 		go func(retention Retention) {
-			ticker := time.NewTicker(time.Duration(retention.Interval) * time.Second)
+			ticker := NewTickerWithOffset(time.Duration(retention.Interval)*time.Second,
+				time.Duration(rand.Intn(int(retention.Interval)))*time.Second)
 			for {
 				select {
-				case now := <-ticker.C:
+				case now := <-ticker:
 					//fmt.Printf("%v: Time to save %v at retention %v\n", now, c.Key, retention)
 					t.save(retention, now)
 				case val := <-t.channels[retention.Index]:
