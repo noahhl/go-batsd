@@ -6,6 +6,7 @@ import (
 
 	"fmt"
 	"runtime"
+	"time"
 )
 
 var counterChannel chan gobatsd.Datapoint
@@ -20,7 +21,7 @@ func main() {
 	gobatsd.LoadConfig()
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	processingChannel := clamp.StartDualServer(":8125")
-	clamp.StartStatsServer(":8349")
+	clamp.StartStatsServer(":8124")
 	gobatsd.SetupDatastore()
 
 	fmt.Printf("Starting on port %v\n", gobatsd.Config.Port)
@@ -43,9 +44,19 @@ func main() {
 		}(processingChannel)
 	}
 
-	go processDatatype(gaugeChannel, gobatsd.NewGauge)
-	go processDatatype(timerChannel, gobatsd.NewTimer)
-	go processDatatype(counterChannel, gobatsd.NewCounter)
+	go func() {
+		c := time.Tick(5 * time.Second)
+		for {
+			<-c
+			clamp.StatsChannel <- clamp.Stat{"gaugeChannelSize", fmt.Sprintf("%v", len(gaugeChannel))}
+			clamp.StatsChannel <- clamp.Stat{"counterChannelSize", fmt.Sprintf("%v", len(counterChannel))}
+			clamp.StatsChannel <- clamp.Stat{"timerChannelSize", fmt.Sprintf("%v", len(timerChannel))}
+		}
+	}()
+
+	processDatatype("gauges", gaugeChannel, gobatsd.NewGauge)
+	processDatatype("timers", timerChannel, gobatsd.NewTimer)
+	processDatatype("counters", counterChannel, gobatsd.NewCounter)
 
 	c := make(chan int)
 	for {
@@ -54,20 +65,29 @@ func main() {
 
 }
 
-func processDatatype(ch chan gobatsd.Datapoint, metricCreator func(string) gobatsd.Metric) {
+func processDatatype(datatypeName string, ch chan gobatsd.Datapoint, metricCreator func(string) gobatsd.Metric) {
 	metrics := make(map[string]gobatsd.Metric)
-	for {
-		select {
-		case d := <-ch:
-			if m, ok := metrics[d.Name]; ok {
-				m.Update(d.Value)
-			} else {
-				m := metricCreator(d.Name)
-				m.Start()
-				metrics[d.Name] = m
-				m.Update(d.Value)
+	go func() {
+		c := time.Tick(5 * time.Second)
+		for {
+			<-c
+			clamp.StatsChannel <- clamp.Stat{datatypeName, fmt.Sprintf("%v", len(metrics))}
+		}
+	}()
+	go func() {
+		for {
+			select {
+			case d := <-ch:
+				if m, ok := metrics[d.Name]; ok {
+					m.Update(d.Value)
+				} else {
+					m := metricCreator(d.Name)
+					m.Start()
+					metrics[d.Name] = m
+					m.Update(d.Value)
+				}
 			}
 		}
-	}
+	}()
 
 }
