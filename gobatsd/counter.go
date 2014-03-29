@@ -28,6 +28,7 @@ func NewCounter(name string) Metric {
 	for i := range c.Paths {
 		c.Paths[i] = CalculateFilename(fmt.Sprintf("counters:%v:%v", c.Key, Config.Retentions[i].Interval), Config.Root)
 	}
+	datastore.RecordMetric(fmt.Sprintf("counters:%v", c.Key))
 	c.Start()
 	return c
 }

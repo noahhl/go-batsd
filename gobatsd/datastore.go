@@ -106,7 +106,6 @@ func (d *Datastore) writeToDisk(observation AggregateObservation) {
 				fmt.Printf("%v", err)
 			}
 			newFile = true
-			d.RecordMetric(observation.RawName)
 		} else {
 			panic(err)
 		}
