@@ -27,6 +27,7 @@ func NewTimer(name string) Metric {
 	for i := range t.channels {
 		t.channels[i] = make(chan float64, timerInternalBufferSize)
 	}
+	t.Start()
 	return t
 }
 

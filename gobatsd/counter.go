@@ -23,6 +23,7 @@ func NewCounter(name string) Metric {
 	for i := range c.channels {
 		c.channels[i] = make(chan float64, counterInternalBufferSize)
 	}
+	c.Start()
 	return c
 }
 

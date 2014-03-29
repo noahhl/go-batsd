@@ -13,7 +13,6 @@ func TestCounterIncrement(t *testing.T) {
 	SetupDatastore()
 
 	c := NewCounter("test").(*Counter)
-	c.Start()
 	c.Update(1.3)
 	time.Sleep(1 * time.Millisecond)
 	if c.Values[0] != 1.3 {
@@ -29,7 +28,6 @@ func BenchmarkCounterIncrement(b *testing.B) {
 	SetupDatastore()
 
 	c := NewCounter("test").(*Counter)
-	c.Start()
 	for j := 0; j < b.N; j++ {
 		c.Update(1)
 	}

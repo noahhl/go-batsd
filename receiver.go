@@ -96,7 +96,6 @@ func processDatatype(datatypeName string, ch chan gobatsd.Datapoint, metricCreat
 					m.Update(d.Value)
 				} else {
 					m := metricCreator(d.Name)
-					m.Start()
 					metrics[d.Name] = m
 					m.Update(d.Value)
 				}
