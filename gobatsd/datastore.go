@@ -22,7 +22,7 @@ type Datastore struct {
 }
 
 var numRedisRoutines = 50
-var numDiskRoutines = 100
+var numDiskRoutines = 50
 var redisPoolSize = 20
 
 const diskstoreChannelSize = 100000
