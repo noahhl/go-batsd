@@ -17,6 +17,8 @@ var counterChannel chan gobatsd.Datapoint
 var gaugeChannel chan gobatsd.Datapoint
 var timerChannel chan gobatsd.Datapoint
 
+var internalMetrics map[string]gobatsd.Metric
+
 const channelBufferSize = 10000
 const numIncomingMessageProcessors = 10
 
@@ -38,6 +40,12 @@ func main() {
 	gobatsd.SetupDatastore()
 
 	fmt.Printf("Starting on port %v\n", gobatsd.Config.Port)
+
+	internalMetrics = map[string]gobatsd.Metric{
+		"countersProcessed": gobatsd.NewCounter("statsd.countersProcessed"),
+		"gaugesProcessed":   gobatsd.NewCounter("statsd.gaugesProcessed"),
+		"timersProcessed":   gobatsd.NewCounter("statsd.timersProcessed"),
+	}
 
 	gaugeChannel = make(chan gobatsd.Datapoint, channelBufferSize)
 	counterChannel = make(chan gobatsd.Datapoint, channelBufferSize)
@@ -99,6 +107,7 @@ func processDatatype(datatypeName string, ch chan gobatsd.Datapoint, metricCreat
 					metrics[d.Name] = m
 					m.Update(d.Value)
 				}
+				internalMetrics[datatypeName+"Processed"].Update(1)
 			}
 		}
 	}()
