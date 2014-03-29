@@ -81,8 +81,12 @@ func createDatapoint(rawTs string, rawValue string, operation string, metric str
 		value, _ = strconv.ParseFloat(rawValue, 64)
 	} else {
 		//timer - find the right index
-		timerComponents := strings.Split(rawValue, "/")
-		value, _ = strconv.ParseFloat(timerComponents[headers[operation]], 64)
+		if headerIndex, ok := headers[operation]; ok {
+			timerComponents := strings.Split(rawValue, "/")
+			value, _ = strconv.ParseFloat(timerComponents[headerIndex], 64)
+		} else {
+			return Datapoint{}
+		}
 	}
 	d := Datapoint{ts, value}
 	return d
@@ -159,10 +163,13 @@ func handleConn(client net.Conn) {
 
 				v, redisErr := redis.Zrangebyscore(metric, startTs, endTs) //metric, start, end
 				if redisErr == nil {
-					values := make([]Datapoint, len(v))
+					values := make([]Datapoint, 0)
 					for i := 0; i < len(v); i++ {
 						parts := strings.Split(string(v[i]), "<X>")
-						values[i] = createDatapoint(parts[0], parts[1], operation, metric, version)
+						v := createDatapoint(parts[0], parts[1], operation, metric, version)
+						if v.Timestamp > 0 {
+							values = append(values, v)
+						}
 					}
 					client.Write(serializeDatapoints(values))
 					client.Write([]byte("\n"))
@@ -202,14 +209,10 @@ func handleConn(client net.Conn) {
 						parts := strings.Split(strings.TrimSpace(line), " ")
 						ts, _ := strconv.ParseFloat(parts[0], 64)
 						if ts >= startTs && ts <= endTs {
-							l := len(values)
-							if l+1 > cap(values) { // reallocate
-								newSlice := make([]Datapoint, (l+1)*2)
-								copy(newSlice, values)
-								values = newSlice
+							v := createDatapoint(parts[0], parts[1], operation, metric, version)
+							if v.Timestamp > 0 {
+								values = append(values, v)
 							}
-							values = values[0 : l+1]
-							values[l] = createDatapoint(parts[0], parts[1], operation, metric, version)
 						}
 						if ts > endTs {
 							break
