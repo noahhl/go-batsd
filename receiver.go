@@ -14,7 +14,6 @@ var gaugeChannel chan gobatsd.Datapoint
 var timerChannel chan gobatsd.Datapoint
 
 const channelBufferSize = 10000
-const heartbeatInterval = 1
 const numIncomingMessageProcessors = 100
 
 func main() {
@@ -45,7 +44,7 @@ func main() {
 	}
 
 	go func() {
-		c := time.Tick(5 * time.Second)
+		c := time.Tick(1 * time.Second)
 		for {
 			<-c
 			clamp.StatsChannel <- clamp.Stat{"gaugeChannelSize", fmt.Sprintf("%v", len(gaugeChannel))}
@@ -68,7 +67,7 @@ func main() {
 func processDatatype(datatypeName string, ch chan gobatsd.Datapoint, metricCreator func(string) gobatsd.Metric) {
 	metrics := make(map[string]gobatsd.Metric)
 	go func() {
-		c := time.Tick(5 * time.Second)
+		c := time.Tick(1 * time.Second)
 		for {
 			<-c
 			clamp.StatsChannel <- clamp.Stat{datatypeName, fmt.Sprintf("%v", len(metrics))}

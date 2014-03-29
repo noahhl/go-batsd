@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+	"time"
 )
 
 type Datastore struct {
@@ -21,17 +22,27 @@ type Datastore struct {
 }
 
 var numRedisRoutines = 50
-var numDiskRoutines = 50
+var numDiskRoutines = 100
 var redisPoolSize = 20
+
+const diskstoreChannelSize = 100000
 
 var datastore Datastore
 
 func SetupDatastore() {
 	datastore = Datastore{}
-	datastore.diskChannel = make(chan AggregateObservation, channelBufferSize)
+	datastore.diskChannel = make(chan AggregateObservation, diskstoreChannelSize)
 	datastore.redisChannel = make(chan AggregateObservation, channelBufferSize)
 	datastore.redisPool = &clamp.ConnectionPoolWrapper{}
 	datastore.redisPool.InitPool(redisPoolSize, openRedisConnection)
+	go func() {
+		c := time.Tick(1 * time.Second)
+		for {
+			<-c
+			clamp.StatsChannel <- clamp.Stat{"datastoreRedisChannelSize", fmt.Sprintf("%v", len(datastore.redisChannel))}
+			clamp.StatsChannel <- clamp.Stat{"datastoreDiskChannelSize", fmt.Sprintf("%v", len(datastore.diskChannel))}
+		}
+	}()
 	for i := 0; i < numDiskRoutines; i++ {
 		go func() {
 			for {
