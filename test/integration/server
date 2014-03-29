@@ -1,0 +1,96 @@
+#!/usr/bin/env ruby
+
+require 'fileutils'
+require 'socket'
+require 'digest'
+require 'redis'
+require 'json'
+
+FileUtils.rm_rf("/tmp/batsd/")
+FileUtils.mkdir_p("/tmp/batsd")
+
+#Set up the server
+pid = fork do  
+  exec "#{File.expand_path("#{__FILE__}/../../../bin/go-batsd-server")} -config #{File.expand_path("#{__FILE__}/../config.yml")} "
+end 
+Process.detach(pid)
+
+begin
+  sleep 1
+  client = TCPSocket.new("127.0.0.1", 8125)
+
+  redis = Redis.new
+  redis.flushall
+
+  redis_ts = Time.now.to_i - 100
+  #Stick some data in Redis and on disk
+  redis.sadd "datapoints", ["test1", "test2", "test2", "test3"]
+  redis.zadd "counters:test1", redis_ts, "#{redis_ts}<X>5923"
+  hash = Digest::MD5.hexdigest("counters:test2:6")
+  path = "/tmp/batsd/#{hash[0..1]}/#{hash[2..3]}/#{hash}"
+  FileUtils.mkdir_p("/tmp/batsd/#{hash[0..1]}/#{hash[2..3]}")
+
+  fileContent = <<-EOF
+v2 counters:test2:6
+#{Time.now.to_i - 3600} 174
+#{Time.now.to_i - 3500} 176
+  EOF
+
+  File.open(path, "w" ) do |f|
+    f.write fileContent
+    f.close
+  end
+
+  print "Testing ping pong..."
+  client.puts "ping"
+  if client.gets.chomp != "PONG"
+    print "FAILED\n"
+    exit 2
+  else
+    print "Ok\n"
+  end
+
+  print "Testing available..."
+  client.puts "available"
+  avail = JSON(client.gets.chomp)
+  if avail.sort != %w(test1 test2 test3)
+    print "FAILED\n"
+    exit 2
+  else
+    print "Ok\n"
+  end
+
+  print "Testing counter still in redis...."
+  client.puts "values counters:test1 #{Time.now.to_i - 150} #{Time.now.to_i}"
+  data =JSON(client.gets.chomp)
+  if data != [{"Timestamp" => redis_ts, "Value" => 5923}]
+       print "FAILED\n"
+    exit 2
+  else
+    print "Ok\n"
+  end
+
+
+  print "Testing counter on disk...."
+  client.puts "values counters:test2 #{Time.now.to_i - 4000} #{Time.now.to_i}"
+  data =JSON(client.gets.chomp)
+  if data.count != 2 || data[1]["Value"] != 176
+       print "FAILED\n"
+    exit 2
+  else
+    print "Ok\n"
+  end
+
+  print "Testing quit..."
+  client.puts "quit"
+  if client.gets.chomp != "BYE"
+    print "FAILED\n"
+    exit 2
+  else
+    print "Ok\n"
+  end
+
+
+ensure
+  Process.kill("HUP", pid)
+end
