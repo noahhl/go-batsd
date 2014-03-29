@@ -14,7 +14,7 @@ type Counter struct {
 
 const counterInternalBufferSize = 10
 
-func NewCounter(name string) *Counter {
+func NewCounter(name string) Metric {
 	c := &Counter{}
 	c.Key = name
 	c.Values = make([]float64, len(Config.Retentions))

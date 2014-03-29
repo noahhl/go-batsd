@@ -11,7 +11,7 @@ type Gauge struct {
 
 const gaugeInternalBufferSize = 10
 
-func NewGauge(name string) *Gauge {
+func NewGauge(name string) Metric {
 	g := &Gauge{}
 	g.Key = name
 	return g

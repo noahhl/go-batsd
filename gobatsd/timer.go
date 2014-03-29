@@ -15,7 +15,7 @@ type Timer struct {
 const timerInternalBufferSize = 10
 const timerVersion = "2"
 
-func NewTimer(name string) *Timer {
+func NewTimer(name string) Metric {
 	t := &Timer{}
 	t.Key = name
 	t.Values = make([][]float64, len(Config.Retentions))

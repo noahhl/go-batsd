@@ -12,7 +12,7 @@ func TestCounterIncrement(t *testing.T) {
 	Config.RedisPort = 6379
 	SetupDispatcher()
 
-	c := NewCounter("test")
+	c := NewCounter("test").(*Counter)
 	c.Start()
 	c.Update(1.3)
 	time.Sleep(1 * time.Millisecond)
@@ -28,7 +28,7 @@ func BenchmarkCounterIncrement(b *testing.B) {
 	Config.RedisPort = 6379
 	SetupDispatcher()
 
-	c := NewCounter("test")
+	c := NewCounter("test").(*Counter)
 	c.Start()
 	for j := 0; j < b.N; j++ {
 		c.Update(1)
@@ -40,7 +40,8 @@ func TestCounterSave(t *testing.T) {
 	Config.RedisHost = "127.0.0.1"
 	Config.RedisPort = 6379
 	SetupDispatcher()
-	c := NewCounter("test")
+
+	c := NewCounter("test").(*Counter)
 	c.Values[0] = 123
 	now := time.Now()
 	c.save(Config.Retentions[0], now)

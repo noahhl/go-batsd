@@ -12,7 +12,7 @@ func TestTimerUpdate(t *testing.T) {
 	Config.RedisPort = 6379
 	SetupDispatcher()
 
-	timer := NewTimer("test")
+	timer := NewTimer("test").(*Timer)
 	timer.Start()
 	timer.Update(8.6754)
 	time.Sleep(1 * time.Millisecond)
@@ -28,7 +28,7 @@ func BenchmarkTimerUpdate(b *testing.B) {
 	Config.RedisPort = 6379
 	SetupDispatcher()
 
-	timer := NewTimer("test")
+	timer := NewTimer("test").(*Timer)
 	timer.Start()
 
 	for j := 0; j < b.N; j++ {
@@ -42,7 +42,7 @@ func TestTimerSave(t *testing.T) {
 	Config.RedisPort = 6379
 	SetupDispatcher()
 
-	timer := NewTimer("testttttt")
+	timer := NewTimer("testttttt").(*Timer)
 	timer.Values[0] = []float64{1, 2, 3, 4, 5}
 	now := time.Now()
 	timer.save(Config.Retentions[0], now)

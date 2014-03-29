@@ -23,11 +23,12 @@ func main() {
 	clamp.StartStatsServer(":8349")
 	gobatsd.SetupDispatcher()
 
+	fmt.Printf("Starting on port %v\n", gobatsd.Config.Port)
+
 	gaugeChannel = make(chan gobatsd.Datapoint, channelBufferSize)
 	counterChannel = make(chan gobatsd.Datapoint, channelBufferSize)
 	timerChannel = make(chan gobatsd.Datapoint, channelBufferSize)
 
-	fmt.Printf("Starting on port %v\n", gobatsd.Config.Port)
 	channels := map[string]chan gobatsd.Datapoint{"g": gaugeChannel, "c": counterChannel, "ms": timerChannel}
 
 	for i := 0; i < numIncomingMessageProcessors; i++ {
@@ -42,9 +43,9 @@ func main() {
 		}(processingChannel)
 	}
 
-	go processGauges(gaugeChannel)
-	go processCounters(counterChannel)
-	go processTimers(timerChannel)
+	go processDatatype(gaugeChannel, gobatsd.NewGauge)
+	go processDatatype(timerChannel, gobatsd.NewTimer)
+	go processDatatype(counterChannel, gobatsd.NewCounter)
 
 	c := make(chan int)
 	for {
@@ -53,56 +54,20 @@ func main() {
 
 }
 
-func processGauges(ch chan gobatsd.Datapoint) {
-	gauges := make(map[string]*gobatsd.Gauge)
-
+func processDatatype(ch chan gobatsd.Datapoint, metricCreator func(string) gobatsd.Metric) {
+	metrics := make(map[string]gobatsd.Metric)
 	for {
 		select {
 		case d := <-ch:
-			if gauge, ok := gauges[d.Name]; ok {
-				gauge.Update(d.Value)
+			if m, ok := metrics[d.Name]; ok {
+				m.Update(d.Value)
 			} else {
-				gauge := gobatsd.NewGauge(d.Name)
-				gauge.Start()
-				gauges[d.Name] = gauge
-				gauge.Update(d.Value)
+				m := metricCreator(d.Name)
+				m.Start()
+				metrics[d.Name] = m
+				m.Update(d.Value)
 			}
 		}
 	}
-}
-func processCounters(ch chan gobatsd.Datapoint) {
-	counters := make(map[string]*gobatsd.Counter)
 
-	for {
-		select {
-		case d := <-ch:
-			if counter, ok := counters[d.Name]; ok {
-				counter.Update(d.Value)
-			} else {
-				counter := gobatsd.NewCounter(d.Name)
-				counter.Start()
-				counters[d.Name] = counter
-				counter.Update(d.Value)
-			}
-		}
-	}
-}
-
-func processTimers(ch chan gobatsd.Datapoint) {
-
-	timers := make(map[string]*gobatsd.Timer)
-
-	for {
-		select {
-		case d := <-ch:
-			if timer, ok := timers[d.Name]; ok {
-				timer.Update(d.Value)
-			} else {
-				timer := gobatsd.NewTimer(d.Name)
-				timer.Start()
-				timers[d.Name] = timer
-				timer.Update(d.Value)
-			}
-		}
-	}
 }
