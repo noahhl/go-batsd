@@ -21,7 +21,7 @@ func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	processingChannel := clamp.StartDualServer(":8125")
 	clamp.StartStatsServer(":8349")
-	gobatsd.SetupDispatcher()
+	gobatsd.SetupDatastore()
 
 	fmt.Printf("Starting on port %v\n", gobatsd.Config.Port)
 

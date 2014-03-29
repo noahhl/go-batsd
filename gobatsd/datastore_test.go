@@ -31,7 +31,7 @@ func TestRecordingMetric(t *testing.T) {
 	Config.RedisHost = "127.0.0.1"
 	Config.RedisPort = 6379
 
-	d := Dispatcher{}
+	d := Datastore{}
 	d.redisPool = &clamp.ConnectionPoolWrapper{}
 	d.redisPool.InitPool(redisPoolSize, openRedisConnection)
 	r := d.redisPool.GetConnection().(redis.Client)
@@ -52,7 +52,7 @@ func TestSavingToRedis(t *testing.T) {
 	Config.RedisHost = "127.0.0.1"
 	Config.RedisPort = 6379
 
-	d := Dispatcher{}
+	d := Datastore{}
 	d.redisPool = &clamp.ConnectionPoolWrapper{}
 	d.redisPool.InitPool(redisPoolSize, openRedisConnection)
 
@@ -81,7 +81,7 @@ func BenchmarkSavingToRedis(b *testing.B) {
 	Config.RedisHost = "127.0.0.1"
 	Config.RedisPort = 6379
 
-	d := Dispatcher{}
+	d := Datastore{}
 	d.redisPool = &clamp.ConnectionPoolWrapper{}
 	d.redisPool.InitPool(redisPoolSize, openRedisConnection)
 	b.ResetTimer()
@@ -100,7 +100,7 @@ func TestSavingToDisk(t *testing.T) {
 
 	obs := AggregateObservation{"test_metric", "12345 1\n", 1234, "1"}
 	obs2 := AggregateObservation{"test_metric", "123456 2\n", 1234, "1"}
-	d := Dispatcher{}
+	d := Datastore{}
 	d.redisPool = &clamp.ConnectionPoolWrapper{}
 	d.redisPool.InitPool(redisPoolSize, openRedisConnection)
 
@@ -140,7 +140,7 @@ func BenchmarkSavingToDisk(b *testing.B) {
 	Config.RedisHost = "127.0.0.1"
 	Config.RedisPort = 6379
 
-	d := Dispatcher{}
+	d := Datastore{}
 	d.redisPool = &clamp.ConnectionPoolWrapper{}
 	d.redisPool.InitPool(redisPoolSize, openRedisConnection)
 	os.RemoveAll("/tmp/batsd")
@@ -156,7 +156,7 @@ func BenchmarkRedisPool(b *testing.B) {
 	Config.RedisHost = "127.0.0.1"
 	Config.RedisPort = 6379
 
-	d := Dispatcher{}
+	d := Datastore{}
 	d.redisPool = &clamp.ConnectionPoolWrapper{}
 	d.redisPool.InitPool(redisPoolSize, openRedisConnection)
 	b.ResetTimer()

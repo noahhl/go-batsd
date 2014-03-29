@@ -14,7 +14,7 @@ import (
 	"syscall"
 )
 
-type Dispatcher struct {
+type Datastore struct {
 	diskChannel  chan AggregateObservation
 	redisChannel chan AggregateObservation
 	redisPool    *clamp.ConnectionPoolWrapper
@@ -24,19 +24,19 @@ var numRedisRoutines = 50
 var numDiskRoutines = 50
 var redisPoolSize = 20
 
-var dispatcher Dispatcher
+var datastore Datastore
 
-func SetupDispatcher() {
-	dispatcher = Dispatcher{}
-	dispatcher.diskChannel = make(chan AggregateObservation, channelBufferSize)
-	dispatcher.redisChannel = make(chan AggregateObservation, channelBufferSize)
-	dispatcher.redisPool = &clamp.ConnectionPoolWrapper{}
-	dispatcher.redisPool.InitPool(redisPoolSize, openRedisConnection)
+func SetupDatastore() {
+	datastore = Datastore{}
+	datastore.diskChannel = make(chan AggregateObservation, channelBufferSize)
+	datastore.redisChannel = make(chan AggregateObservation, channelBufferSize)
+	datastore.redisPool = &clamp.ConnectionPoolWrapper{}
+	datastore.redisPool.InitPool(redisPoolSize, openRedisConnection)
 	for i := 0; i < numDiskRoutines; i++ {
 		go func() {
 			for {
-				obs := <-dispatcher.diskChannel
-				dispatcher.writeToDisk(obs)
+				obs := <-datastore.diskChannel
+				datastore.writeToDisk(obs)
 			}
 		}()
 	}
@@ -44,19 +44,19 @@ func SetupDispatcher() {
 	for i := 0; i < numRedisRoutines; i++ {
 		go func() {
 			for {
-				obs := <-dispatcher.redisChannel
-				dispatcher.writeToRedis(obs)
+				obs := <-datastore.redisChannel
+				datastore.writeToRedis(obs)
 			}
 		}()
 	}
 }
 
 func StoreOnDisk(observation AggregateObservation) {
-	dispatcher.diskChannel <- observation
+	datastore.diskChannel <- observation
 }
 
 func StoreInRedis(observation AggregateObservation) {
-	dispatcher.redisChannel <- observation
+	datastore.redisChannel <- observation
 }
 
 func openRedisConnection() (interface{}, error) {
@@ -65,19 +65,19 @@ func openRedisConnection() (interface{}, error) {
 	return r, err
 }
 
-func (d *Dispatcher) RecordMetric(name string) {
+func (d *Datastore) RecordMetric(name string) {
 	r := d.redisPool.GetConnection().(redis.Client)
 	defer d.redisPool.ReleaseConnection(r)
 	r.Sadd("datapoints", []byte(name))
 }
 
-func (d *Dispatcher) writeToRedis(observation AggregateObservation) {
+func (d *Datastore) writeToRedis(observation AggregateObservation) {
 	r := d.redisPool.GetConnection().(redis.Client)
 	defer d.redisPool.ReleaseConnection(r)
 	r.Zadd(observation.Name, float64(observation.Timestamp), []byte(observation.Content))
 }
 
-func (d *Dispatcher) writeToDisk(observation AggregateObservation) {
+func (d *Datastore) writeToDisk(observation AggregateObservation) {
 	filename := CalculateFilename(observation.Name, Config.Root)
 
 	file, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0600)
