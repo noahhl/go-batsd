@@ -7,6 +7,10 @@ import (
 	"fmt"
 	"runtime"
 	"time"
+
+	"os"
+	"os/signal"
+	"runtime/pprof"
 )
 
 var counterChannel chan gobatsd.Datapoint
@@ -14,11 +18,21 @@ var gaugeChannel chan gobatsd.Datapoint
 var timerChannel chan gobatsd.Datapoint
 
 const channelBufferSize = 10000
-const numIncomingMessageProcessors = 100
+const numIncomingMessageProcessors = 10
 
 func main() {
-	gobatsd.LoadConfig()
 	runtime.GOMAXPROCS(runtime.NumCPU())
+	gobatsd.LoadConfig()
+	if gobatsd.ProfileCPU {
+		cpuprof, err := os.Create(fmt.Sprintf("cpuprof-%v", time.Now().Unix()))
+		if err != nil {
+			panic(err)
+		}
+		defer cpuprof.Close()
+		pprof.StartCPUProfile(cpuprof)
+		defer pprof.StopCPUProfile()
+	}
+
 	processingChannel := clamp.StartDualServer(":8125")
 	clamp.StartStatsServer(":8124")
 	gobatsd.SetupDatastore()
@@ -57,10 +71,11 @@ func main() {
 	processDatatype("timers", timerChannel, gobatsd.NewTimer)
 	processDatatype("counters", counterChannel, gobatsd.NewCounter)
 
-	c := make(chan int)
-	for {
-		<-c
-	}
+	terminate := make(chan os.Signal)
+	signal.Notify(terminate, os.Interrupt)
+	<-terminate
+
+	fmt.Printf("Server stopped")
 
 }
 
