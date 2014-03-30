@@ -19,6 +19,7 @@ import (
 
 type Client struct {
 	net.Conn
+	redis redis.Client
 }
 
 var redisPool *clamp.ConnectionPoolWrapper
@@ -38,6 +39,7 @@ func main() {
 		panic(err)
 	}
 	numClients := 0
+	redisSpec := redis.DefaultSpec().Host(gobatsd.Config.RedisHost).Port(gobatsd.Config.RedisPort)
 	for {
 		client, err := server.Accept()
 		if client == nil {
@@ -46,7 +48,9 @@ func main() {
 		}
 		numClients++
 		fmt.Printf("Opened connection #%d: %v <-> %v\n", numClients, client.LocalAddr(), client.RemoteAddr())
-		go (&Client{client}).Serve()
+
+		r, _ := redis.NewSynchClientWithSpec(redisSpec)
+		go (&Client{client, r}).Serve()
 	}
 }
 
@@ -76,11 +80,8 @@ func (c *Client) Serve() {
 }
 
 func (c *Client) SendAvailableMetrics() {
-	r := redisPool.GetConnection().(redis.Client)
-	defer redisPool.ReleaseConnection(r)
-
 	available := make([]string, 0)
-	smembers, err := r.Smembers("datapoints")
+	smembers, err := c.redis.Smembers("datapoints")
 
 	if err == nil {
 		for i := range smembers {
@@ -89,7 +90,6 @@ func (c *Client) SendAvailableMetrics() {
 	}
 	json, _ := json.Marshal(available)
 	c.Write(append(json, '\n'))
-
 }
 
 func (c *Client) SendValues(properties []string) {
@@ -141,11 +141,9 @@ func (c *Client) SendValues(properties []string) {
 
 func (c *Client) SendValuesFromRedis(datatype string, keyname string, start_ts float64, end_ts float64,
 	version string, operation string) {
-	r := redisPool.GetConnection().(redis.Client)
-	defer redisPool.ReleaseConnection(r)
 
 	values := make([]map[string]float64, 0)
-	v, redisErr := r.Zrangebyscore(keyname, start_ts, end_ts)
+	v, redisErr := c.redis.Zrangebyscore(keyname, start_ts, end_ts)
 	if redisErr == nil {
 		for i := range v {
 			parts := strings.Split(string(v[i]), "<X>")
@@ -161,6 +159,8 @@ func (c *Client) SendValuesFromRedis(datatype string, keyname string, start_ts f
 			}
 
 		}
+	} else {
+		fmt.Printf("%v\n", redisErr)
 	}
 	json, _ := json.Marshal(values)
 	c.Write(append(json, '\n'))
@@ -204,6 +204,8 @@ func (c *Client) SendValuesFromDisk(datatype string, path string, start_ts float
 				break
 			}
 		}
+	} else {
+		fmt.Printf("%v\n", err)
 	}
 	json, _ := json.Marshal(values)
 	c.Write(append(json, '\n'))
