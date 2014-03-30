@@ -33,8 +33,7 @@ func SetupDatastore() {
 	datastore = Datastore{}
 	datastore.diskChannel = make(chan AggregateObservation, diskstoreChannelSize)
 	datastore.redisChannel = make(chan AggregateObservation, channelBufferSize)
-	datastore.redisPool = &clamp.ConnectionPoolWrapper{}
-	datastore.redisPool.InitPool(redisPoolSize, openRedisConnection)
+	datastore.redisPool = MakeRedisPool(redisPoolSize)
 	go func() {
 		c := time.Tick(1 * time.Second)
 		for {
@@ -60,6 +59,12 @@ func SetupDatastore() {
 			}
 		}()
 	}
+}
+
+func MakeRedisPool(size int) *clamp.ConnectionPoolWrapper {
+	pool := &clamp.ConnectionPoolWrapper{}
+	pool.InitPool(redisPoolSize, openRedisConnection)
+	return pool
 }
 
 func StoreOnDisk(observation AggregateObservation) {

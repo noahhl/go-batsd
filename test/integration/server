@@ -64,7 +64,7 @@ v2 counters:test2:6
   client.puts "values counters:test1 #{Time.now.to_i - 150} #{Time.now.to_i}"
   data =JSON(client.gets.chomp)
   if data != [{"Timestamp" => redis_ts, "Value" => 5923}]
-       print "FAILED\n"
+  print "FAILED\n"
     exit 2
   else
     print "Ok\n"
@@ -75,7 +75,7 @@ v2 counters:test2:6
   client.puts "values counters:test2 #{Time.now.to_i - 4000} #{Time.now.to_i}"
   data =JSON(client.gets.chomp)
   if data.count != 2 || data[1]["Value"] != 176
-       print "FAILED\n"
+    print "FAILED\n"
     exit 2
   else
     print "Ok\n"
