@@ -18,7 +18,7 @@ var gaugeChannel chan gobatsd.Datapoint
 var timerChannel chan gobatsd.Datapoint
 
 const channelBufferSize = 100000
-const numIncomingMessageProcessors = 10
+const numIncomingMessageProcessors = 20
 
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
