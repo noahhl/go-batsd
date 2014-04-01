@@ -17,7 +17,7 @@ var counterChannel chan gobatsd.Datapoint
 var gaugeChannel chan gobatsd.Datapoint
 var timerChannel chan gobatsd.Datapoint
 
-const channelBufferSize = 1000000
+const channelBufferSize = 2000000
 const numIncomingMessageProcessors = 20
 
 func main() {

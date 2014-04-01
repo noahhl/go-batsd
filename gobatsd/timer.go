@@ -65,28 +65,29 @@ func (t *Timer) Update(value float64) {
 func (t *Timer) save(retention Retention, now time.Time) {
 	values := t.Values[retention.Index]
 	t.Values[retention.Index] = make([]float64, 0)
-	timestamp := now.Unix() - now.Unix()%retention.Interval
-	//fmt.Printf("%v: Ready to store %v, value now %v, retention #%v\n", timestamp, aggregateValue, c.Values[retention.Index], retention.Index)
 	if len(values) == 0 {
 		return
 	}
 
-	count := len(values)
-	min := Min(values)
-	max := Max(values)
-	median := Median(values)
-	mean := Mean(values)
-	stddev := Stddev(values)
-	percentile_90 := Percentile(values, 0.9)
-	percentile_95 := Percentile(values, 0.95)
-	percentile_99 := Percentile(values, 0.99)
-	aggregates := fmt.Sprintf("%v/%v/%v/%v/%v/%v/%v/%v/%v", count, min, max, median, mean, stddev, percentile_90, percentile_95, percentile_99)
+	go func() {
+		timestamp := now.Unix() - now.Unix()%retention.Interval
+		count := len(values)
+		min := Min(values)
+		max := Max(values)
+		median := Median(values)
+		mean := Mean(values)
+		stddev := Stddev(values)
+		percentile_90 := Percentile(values, 0.9)
+		percentile_95 := Percentile(values, 0.95)
+		percentile_99 := Percentile(values, 0.99)
+		aggregates := fmt.Sprintf("%v/%v/%v/%v/%v/%v/%v/%v/%v", count, min, max, median, mean, stddev, percentile_90, percentile_95, percentile_99)
 
-	if retention.Index == 0 {
-		observation := AggregateObservation{"timers:" + t.Key, fmt.Sprintf("%d<X>%v", timestamp, aggregates), timestamp, "timers:" + t.Key, ""}
-		StoreInRedis(observation)
-	} else {
-		observation := AggregateObservation{"timers:" + t.Key + ":" + strconv.FormatInt(retention.Interval, 10) + ":" + timerVersion, fmt.Sprintf("%d %v\n", timestamp, aggregates), timestamp, "timers:" + t.Key, t.Paths[retention.Index]}
-		StoreOnDisk(observation)
-	}
+		if retention.Index == 0 {
+			observation := AggregateObservation{"timers:" + t.Key, fmt.Sprintf("%d<X>%v", timestamp, aggregates), timestamp, "timers:" + t.Key, ""}
+			StoreInRedis(observation)
+		} else {
+			observation := AggregateObservation{"timers:" + t.Key + ":" + strconv.FormatInt(retention.Interval, 10) + ":" + timerVersion, fmt.Sprintf("%d %v\n", timestamp, aggregates), timestamp, "timers:" + t.Key, t.Paths[retention.Index]}
+			StoreOnDisk(observation)
+		}
+	}()
 }

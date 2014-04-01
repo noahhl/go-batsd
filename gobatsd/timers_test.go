@@ -45,18 +45,22 @@ func TestTimerSave(t *testing.T) {
 	timer := NewTimer("testttttt").(*Timer)
 	timer.Values[0] = []float64{1, 2, 3, 4, 5}
 	now := time.Now()
+	go func() {
+		obs := <-datastore.redisChannel
+		expected := fmt.Sprintf("%v<X>%v", now.Unix()-now.Unix()%10, "5/1/5/3/3/1.5811388300841898/5/5/5")
+		if obs.Content != expected {
+			t.Errorf("Timer send to redis was not properly structured, got '%v' expected '%v'", obs.Content, expected)
+		}
+	}()
 	timer.save(Config.Retentions[0], now)
-	obs := <-datastore.redisChannel
-	expected := fmt.Sprintf("%v<X>%v", now.Unix()-now.Unix()%10, "5/1/5/3/3/1.5811388300841898/5/5/5")
-	if obs.Content != expected {
-		t.Errorf("Timer send to redis was not properly structured, got '%v' expected '%v'", obs.Content, expected)
-	}
 	timer.Values[1] = []float64{1, 2, 3, 4, 5}
+	go func() {
+		obs := <-datastore.diskChannel
+		expected := fmt.Sprintf("%v %v\n", now.Unix()-now.Unix()%20, "5/1/5/3/3/1.5811388300841898/5/5/5")
+		if obs.Content != expected {
+			t.Errorf("Timer send to disk was not properly structured, got '%v' expected '%v'", obs.Content, expected)
+		}
+	}()
 	timer.save(Config.Retentions[1], now)
-	obs = <-datastore.diskChannel
-	expected = fmt.Sprintf("%v %v\n", now.Unix()-now.Unix()%20, "5/1/5/3/3/1.5811388300841898/5/5/5")
-	if obs.Content != expected {
-		t.Errorf("Timer send to disk was not properly structured, got '%v' expected '%v'", obs.Content, expected)
-	}
 
 }
