@@ -3,6 +3,7 @@ package gobatsd
 import (
 	"fmt"
 	"math/rand"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -71,15 +72,16 @@ func (t *Timer) save(retention Retention, now time.Time) {
 
 	go func() {
 		timestamp := now.Unix() - now.Unix()%retention.Interval
+		sort.Float64s(values)
 		count := len(values)
-		min := Min(values)
-		max := Max(values)
-		median := Median(values)
+		min := SortedMin(values)
+		max := SortedMax(values)
+		median := SortedMedian(values)
 		mean := Mean(values)
 		stddev := Stddev(values)
-		percentile_90 := Percentile(values, 0.9)
-		percentile_95 := Percentile(values, 0.95)
-		percentile_99 := Percentile(values, 0.99)
+		percentile_90 := SortedPercentile(values, 0.9)
+		percentile_95 := SortedPercentile(values, 0.95)
+		percentile_99 := SortedPercentile(values, 0.99)
 		aggregates := fmt.Sprintf("%v/%v/%v/%v/%v/%v/%v/%v/%v", count, min, max, median, mean, stddev, percentile_90, percentile_95, percentile_99)
 
 		if retention.Index == 0 {

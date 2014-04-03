@@ -2,23 +2,14 @@ package gobatsd
 
 import (
 	"math"
-	"sort"
 )
 
-func Min(a []float64) float64 {
-	min := a[0]
-	for i := range a {
-		min = math.Min(min, a[i])
-	}
-	return min
+func SortedMin(a []float64) float64 {
+	return a[0]
 }
 
-func Max(a []float64) float64 {
-	max := a[0]
-	for i := range a {
-		max = math.Max(max, a[i])
-	}
-	return max
+func SortedMax(a []float64) float64 {
+	return a[len(a)-1]
 }
 
 func Sum(a []float64) float64 {
@@ -43,8 +34,7 @@ func MeanSquared(a []float64) float64 {
 
 }
 
-func Median(a []float64) float64 {
-	sort.Float64s(a)
+func SortedMedian(a []float64) float64 {
 	return a[len(a)/2]
 }
 
@@ -56,7 +46,6 @@ func Stddev(a []float64) float64 {
 	return stddev
 }
 
-func Percentile(a []float64, p float64) float64 {
-	sort.Float64s(a)
+func SortedPercentile(a []float64, p float64) float64 {
 	return a[int(float64(len(a))*p)]
 }
