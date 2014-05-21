@@ -6,8 +6,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"github.com/noahhl/Go-Redis"
-	"github.com/noahhl/clamp"
+	"github.com/garyburd/redigo/redis"
 	"io"
 	"net"
 	"os"
@@ -19,10 +18,8 @@ import (
 
 type Client struct {
 	net.Conn
-	redis redis.Client
+	redis redis.Conn
 }
-
-var redisPool *clamp.ConnectionPoolWrapper
 
 var timerHeader = map[string]int{"count": 0, "min": 1, "max": 2, "median": 3, "mean": 4,
 	"stddev": 5, "percentile_90": 6, "percentile_95": 7, "percentile_99": 8,
@@ -32,14 +29,11 @@ func main() {
 	gobatsd.LoadConfig()
 	fmt.Printf("Starting on port %v, root dir %v\n", gobatsd.Config.Port, gobatsd.Config.Root)
 
-	redisPool = gobatsd.MakeRedisPool(10)
-
 	server, err := net.Listen("tcp", ":"+gobatsd.Config.Port)
 	if err != nil {
 		panic(err)
 	}
 	numClients := 0
-	redisSpec := redis.DefaultSpec().Host(gobatsd.Config.RedisHost).Port(gobatsd.Config.RedisPort)
 	for {
 		client, err := server.Accept()
 		if client == nil {
@@ -49,8 +43,15 @@ func main() {
 		numClients++
 		fmt.Printf("Opened connection #%d: %v <-> %v\n", numClients, client.LocalAddr(), client.RemoteAddr())
 
-		r, _ := redis.NewSynchClientWithSpec(redisSpec)
-		go (&Client{client, r}).Serve()
+		go func() {
+			r, err := redis.Dial("tcp", fmt.Sprintf("%v:%v", gobatsd.Config.RedisHost, gobatsd.Config.RedisPort))
+			if err != nil {
+				panic(err)
+			}
+			defer r.Close()
+
+			(&Client{client, r}).Serve()
+		}()
 	}
 }
 
@@ -81,11 +82,12 @@ func (c *Client) Serve() {
 
 func (c *Client) SendAvailableMetrics() {
 	available := make([]string, 0)
-	smembers, err := c.redis.Smembers("datapoints")
+	smembers, err := c.redis.Do("SMEMBERS", "datapoints")
 
 	if err == nil {
-		for i := range smembers {
-			available = append(available, string(smembers[i]))
+		stringSmembers, _ := redis.Strings(smembers, err)
+		for i := range stringSmembers {
+			available = append(available, stringSmembers[i])
 		}
 	}
 	json, _ := json.Marshal(available)
@@ -143,10 +145,11 @@ func (c *Client) SendValuesFromRedis(datatype string, keyname string, start_ts f
 	version string, operation string) {
 
 	values := make([]map[string]float64, 0)
-	v, redisErr := c.redis.Zrangebyscore(keyname, start_ts, end_ts)
+	v, redisErr := c.redis.Do("ZRANGEBYSCORE", keyname, start_ts, end_ts)
 	if redisErr == nil {
-		for i := range v {
-			parts := strings.Split(string(v[i]), "<X>")
+		stringValues, _ := redis.Strings(v, redisErr)
+		for i := range stringValues {
+			parts := strings.Split(stringValues[i], "<X>")
 			ts, _ := strconv.ParseFloat(parts[0], 64)
 			if datatype == "counter" {
 				value, _ := strconv.ParseFloat(parts[1], 64)
