@@ -144,20 +144,17 @@ func (c *Client) SendValues(properties []string) {
 func (c *Client) SendValuesFromRedis(datatype string, keyname string, start_ts float64, end_ts float64,
 	version string, operation string) {
 
-	values := make([]map[string]float64, 0)
+	values := make([]map[string]string, 0)
 	v, redisErr := c.redis.Do("ZRANGEBYSCORE", keyname, start_ts, end_ts)
 	if redisErr == nil {
 		stringValues, _ := redis.Strings(v, redisErr)
 		for i := range stringValues {
 			parts := strings.Split(stringValues[i], "<X>")
-			ts, _ := strconv.ParseFloat(parts[0], 64)
 			if datatype == "counter" {
-				value, _ := strconv.ParseFloat(parts[1], 64)
-				values = append(values, map[string]float64{"Timestamp": ts, "Value": value})
+				values = append(values, map[string]string{"Timestamp": parts[0], "Value": parts[1]})
 			} else if datatype == "timer" {
 				if headerIndex, ok := timerHeader[operation]; ok {
-					value, _ := strconv.ParseFloat(strings.Split(parts[1], "/")[headerIndex], 64)
-					values = append(values, map[string]float64{"Timestamp": ts, "Value": value})
+					values = append(values, map[string]string{"Timestamp": parts[0], "Value": strings.Split(parts[1], "/")[headerIndex]})
 				}
 			}
 
@@ -165,14 +162,14 @@ func (c *Client) SendValuesFromRedis(datatype string, keyname string, start_ts f
 	} else {
 		fmt.Printf("%v\n", redisErr)
 	}
-	json, _ := json.Marshal(values)
+	json := gobatsd.ArtisinallyMarshallDatapointJSON(values)
 	c.Write(append(json, '\n'))
 }
 
 func (c *Client) SendValuesFromDisk(datatype string, path string, start_ts float64, end_ts float64,
 	version string, operation string) {
 	file, err := os.Open(path)
-	values := make([]map[string]float64, 0)
+	values := make([]map[string]string, 0)
 	if err == nil {
 		reader := bufio.NewReader(file)
 		linesRead := 0
@@ -194,12 +191,10 @@ func (c *Client) SendValuesFromDisk(datatype string, path string, start_ts float
 			ts, _ := strconv.ParseFloat(parts[0], 64)
 			if ts >= start_ts && ts <= end_ts {
 				if datatype == "gauge" || datatype == "counter" {
-					value, _ := strconv.ParseFloat(parts[1], 64)
-					values = append(values, map[string]float64{"Timestamp": ts, "Value": value})
+					values = append(values, map[string]string{"Timestamp": parts[0], "Value": parts[1]})
 				} else if datatype == "timer" {
 					if headerIndex, ok := timerHeader[operation]; ok {
-						value, _ := strconv.ParseFloat(strings.Split(parts[1], "/")[headerIndex], 64)
-						values = append(values, map[string]float64{"Timestamp": ts, "Value": value})
+						values = append(values, map[string]string{"Timestamp": parts[0], "Value": strings.Split(parts[1], "/")[headerIndex]})
 					}
 				}
 			}
@@ -210,7 +205,7 @@ func (c *Client) SendValuesFromDisk(datatype string, path string, start_ts float
 	} else {
 		fmt.Printf("%v\n", err)
 	}
-	json, _ := json.Marshal(values)
+	json := gobatsd.ArtisinallyMarshallDatapointJSON(values)
 	c.Write(append(json, '\n'))
 
 }

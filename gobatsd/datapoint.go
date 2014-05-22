@@ -35,3 +35,31 @@ func ParseDatapointFromString(metric string) Datapoint {
 	}
 	return d
 }
+
+func ArtisinallyMarshallDatapointJSON(values []map[string]string) []byte {
+	marshalled := []byte{}
+	marshalled = append(marshalled, '[')
+	for i := range values {
+		if i > 0 {
+			marshalled = append(marshalled, ',')
+		}
+		//newstr := fmt.Sprintf("{\"Timestamp\": %v, \"Value\": %v}", values[i]["Timestamp"], values[i]["Value"])
+		for k := range "{\"Timestamp\":\"" {
+			marshalled = append(marshalled, "{\"Timestamp\":\""[k])
+		}
+		for k := range values[i]["Timestamp"] {
+			marshalled = append(marshalled, values[i]["Timestamp"][k])
+		}
+		marshalled = append(marshalled, '"', ',')
+		for k := range "\"Value\":\"" {
+			marshalled = append(marshalled, "\"Value\":\""[k])
+		}
+		for k := range values[i]["Value"] {
+			marshalled = append(marshalled, values[i]["Value"][k])
+		}
+		marshalled = append(marshalled, '"', '}')
+
+	}
+	marshalled = append(marshalled, ']')
+	return marshalled
+}
