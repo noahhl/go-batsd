@@ -121,11 +121,15 @@ func (c *Client) SendValues(properties []string) {
 
 	case "timers":
 		pieces := strings.Split(metric, ":")
-		if retention.Index == 0 {
-			c.SendValuesFromRedis("timer", "timers:"+pieces[1], start_ts, end_ts, version, pieces[2])
+		if len(pieces) >= 3 {
+			if retention.Index == 0 {
+				c.SendValuesFromRedis("timer", "timers:"+pieces[1], start_ts, end_ts, version, pieces[2])
+			} else {
+				c.SendValuesFromDisk("timer", gobatsd.CalculateFilename(fmt.Sprintf("timers:%v:%v%v", pieces[1], retention.Interval, version), gobatsd.Config.Root),
+					start_ts, end_ts, version, pieces[2])
+			}
 		} else {
-			c.SendValuesFromDisk("timer", gobatsd.CalculateFilename(fmt.Sprintf("timers:%v:%v%v", pieces[1], retention.Interval, version), gobatsd.Config.Root),
-				start_ts, end_ts, version, pieces[2])
+			c.Write([]byte("[]\n"))
 		}
 
 	case "counters":
