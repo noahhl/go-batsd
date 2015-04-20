@@ -68,10 +68,11 @@ func (c *Counter) save(retention Retention, now time.Time) {
 	}
 
 	if retention.Index == 0 {
-		observation := AggregateObservation{"counters:" + c.Key, fmt.Sprintf("%d<X>%v", timestamp, aggregateValue), timestamp, "counters:" + c.Key, ""}
+		observation := AggregateObservation{Name: "counters:" + c.Key, Content: fmt.Sprintf("%d<X>%v", timestamp, aggregateValue), Timestamp: timestamp, RawName: "counters:" + c.Key, Path: ""}
 		StoreInRedis(observation)
 	} else {
-		observation := AggregateObservation{"counters:" + c.Key + ":" + strconv.FormatInt(retention.Interval, 10), fmt.Sprintf("%d %v\n", timestamp, aggregateValue), timestamp, "counters:" + c.Key, c.Paths[retention.Index]}
+		observation := AggregateObservation{Name: "counters:" + c.Key + ":" + strconv.FormatInt(retention.Interval, 10), Content: fmt.Sprintf("%d %v\n", timestamp, aggregateValue),
+			Timestamp: timestamp, RawName: "counters:" + c.Key, Path: c.Paths[retention.Index], SummaryValues: map[string]float64{"value": aggregateValue}, Interval: retention.Interval}
 		StoreOnDisk(observation)
 	}
 }

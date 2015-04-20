@@ -1,12 +1,15 @@
 package main
 
 import (
+	"github.com/noahhl/clamp"
 	"github.com/noahhl/go-batsd/gobatsd"
 
 	"bufio"
 	"encoding/json"
 	"fmt"
 	"github.com/garyburd/redigo/redis"
+	"github.com/jinntrance/goh"
+	"github.com/jinntrance/goh/Hbase"
 	"io"
 	"net"
 	"os"
@@ -25,6 +28,8 @@ var timerHeader = map[string]int{"count": 0, "min": 1, "max": 2, "median": 3, "m
 	"stddev": 5, "percentile_90": 6, "percentile_95": 7, "percentile_99": 8,
 	"upper_90": 6, "upper_95": 7, "upper_99": 8}
 
+var hbasePool *clamp.ConnectionPoolWrapper
+
 func main() {
 	gobatsd.LoadConfig()
 	fmt.Printf("Starting on port %v, root dir %v\n", gobatsd.Config.Port, gobatsd.Config.Root)
@@ -34,6 +39,9 @@ func main() {
 		panic(err)
 	}
 	numClients := 0
+
+	hbasePool = gobatsd.MakeHbasePool(10)
+
 	for {
 		client, err := server.Accept()
 		if client == nil {
@@ -116,17 +124,14 @@ func (c *Client) SendValues(properties []string) {
 	retention := gobatsd.Config.Retentions[retentionIndex]
 	switch datatype {
 	case "gauges":
-		c.SendValuesFromDisk("gauge", gobatsd.CalculateFilename(metric, gobatsd.Config.Root),
-			start_ts, end_ts, version, "")
-
+		c.SendValuesFromHbase(metric, 0, start_ts, end_ts, "value")
 	case "timers":
 		pieces := strings.Split(metric, ":")
 		if len(pieces) >= 3 {
 			if retention.Index == 0 {
 				c.SendValuesFromRedis("timer", "timers:"+pieces[1], start_ts, end_ts, version, pieces[2])
 			} else {
-				c.SendValuesFromDisk("timer", gobatsd.CalculateFilename(fmt.Sprintf("timers:%v:%v%v", pieces[1], retention.Interval, version), gobatsd.Config.Root),
-					start_ts, end_ts, version, pieces[2])
+				c.SendValuesFromHbase("timers:"+pieces[1], retention.Interval, start_ts, end_ts, pieces[2])
 			}
 		} else {
 			c.Write([]byte("[]\n"))
@@ -136,8 +141,7 @@ func (c *Client) SendValues(properties []string) {
 		if retention.Index == 0 {
 			c.SendValuesFromRedis("counter", metric, start_ts, end_ts, version, "")
 		} else {
-			c.SendValuesFromDisk("counter", gobatsd.CalculateFilename(fmt.Sprintf("%v:%v", metric, retention.Interval), gobatsd.Config.Root),
-				start_ts, end_ts, version, "")
+			c.SendValuesFromHbase(metric, retention.Interval, start_ts, end_ts, "value")
 		}
 
 	default:
@@ -212,4 +216,34 @@ func (c *Client) SendValuesFromDisk(datatype string, path string, start_ts float
 	json := gobatsd.ArtisinallyMarshallDatapointJSON(values)
 	c.Write(append(json, '\n'))
 
+}
+
+func (c *Client) SendValuesFromHbase(keyname string, retentionInterval int64, start_ts float64, end_ts float64, operation string) {
+	start := time.Now().UnixNano()
+	hbaseClient := hbasePool.GetConnection().(*goh.HClient)
+
+	var result []*Hbase.TCell
+	var err error
+	if keyname[0] == 'g' { //this is a gauge, so no way to know how many of them there are. get a  bunch
+		result, err = hbaseClient.GetVerTs(gobatsd.Config.HbaseTable, []byte(keyname), fmt.Sprintf("interval%v:%v", retentionInterval, operation), int64(end_ts), 1000000, nil)
+	} else {
+		result, err = hbaseClient.GetVerTs(gobatsd.Config.HbaseTable, []byte(keyname), fmt.Sprintf("interval%v:%v", retentionInterval, operation), int64(end_ts), int32(int64(end_ts-start_ts)/retentionInterval), nil)
+	}
+	if err != nil {
+		fmt.Printf("%v\n", err)
+	}
+	values := make([]map[string]string, 0)
+	for i := range result {
+
+		decodedVal, err := gobatsd.DecodeFloat64(result[i].Value)
+		if err == nil {
+			values = append(values, map[string]string{"Timestamp": strconv.FormatInt(result[i].Timestamp, 10), "Value": strconv.FormatFloat(decodedVal, 'f', -1, 64)})
+		}
+	}
+	fmt.Printf("Hbase completed request in %v ms, retrieved %v records\n", (time.Now().UnixNano()-start)/int64(time.Millisecond), len(values))
+
+	json := gobatsd.ArtisinallyMarshallDatapointJSON(values)
+	c.Write(append(json, '\n'))
+	hbasePool.ReleaseConnection(hbaseClient)
+	fmt.Printf("Total time to respond to client: %v ms\n", (time.Now().UnixNano()-start)/int64(time.Millisecond))
 }

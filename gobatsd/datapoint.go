@@ -12,11 +12,13 @@ type Datapoint struct {
 }
 
 type AggregateObservation struct {
-	Name      string
-	Content   string
-	Timestamp int64
-	RawName   string
-	Path      string
+	Name          string
+	Content       string
+	Timestamp     int64
+	RawName       string
+	Path          string
+	SummaryValues map[string]float64
+	Interval      int64
 }
 
 func ParseDatapointFromString(metric string) Datapoint {
@@ -62,4 +64,18 @@ func ArtisinallyMarshallDatapointJSON(values []map[string]string) []byte {
 	}
 	marshalled = append(marshalled, ']')
 	return marshalled
+}
+
+type AggregateObservations []AggregateObservation
+
+func (o AggregateObservations) Len() int {
+	return len(o)
+}
+
+func (o AggregateObservations) Swap(i, j int) {
+	o[i], o[j] = o[j], o[i]
+}
+
+func (o AggregateObservations) Less(i, j int) bool {
+	return o[i].Timestamp < o[j].Timestamp
 }
