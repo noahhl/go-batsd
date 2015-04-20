@@ -24,6 +24,7 @@ func (g *Gauge) Start() {
 }
 
 func (g *Gauge) Update(value float64) {
-	observation := AggregateObservation{"gauges:" + g.Key, fmt.Sprintf("%d %v\n", time.Now().Unix(), value), 0, "gauges:" + g.Key, g.Path}
+	observation := AggregateObservation{Name: "gauges:" + g.Key, Content: fmt.Sprintf("%d %v\n", time.Now().Unix(), value), Timestamp: time.Now().Unix(), RawName: "gauges:" + g.Key,
+		Path: g.Path, SummaryValues: map[string]float64{"value": value}, Interval: 0}
 	StoreOnDisk(observation)
 }

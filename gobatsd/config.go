@@ -14,11 +14,14 @@ type Retention struct {
 }
 
 type Configuration struct {
-	Port, Root     string
-	Retentions     []Retention
-	RedisHost      string
-	RedisPort      int
-	TargetInterval int64
+	Port, Root       string
+	Retentions       []Retention
+	RedisHost        string
+	RedisPort        int
+	TargetInterval   int64
+	HbaseConnections []string
+	HbaseTable       string
+	Hbase            bool
 }
 
 var Config Configuration
@@ -30,6 +33,8 @@ func LoadConfig() {
 	port := flag.String("port", "default", "port to bind to")
 	duration := flag.Int64("duration", 0, "duration to operation on")
 	cpuprofile := flag.Bool("cpuprofile", false, "write cpu profile to file")
+	hbase := flag.Bool("hbase", false, "send to hbase")
+	hbaseTable := flag.String("table", "statsd", "hbase table to write to")
 	flag.Parse()
 
 	absolutePath, _ := filepath.Abs(*configPath)
@@ -53,7 +58,14 @@ func LoadConfig() {
 	p, _ := c.Get("redis.port")
 	redisPort, _ := strconv.Atoi(p)
 	redisHost, _ := c.Get("redis.host")
-	Config = Configuration{*port, root, retentions, redisHost, redisPort, *duration}
+
+	numHbases, _ := c.Count("hbase_hosts")
+	hbaseConnections := make([]string, numHbases)
+	for i := 0; i < numHbases; i++ {
+		hbaseConnections[i], _ = c.Get("hbase_hosts[" + strconv.Itoa(i) + "]")
+	}
+
+	Config = Configuration{*port, root, retentions, redisHost, redisPort, *duration, hbaseConnections, *hbaseTable, *hbase}
 
 	ProfileCPU = *cpuprofile
 }

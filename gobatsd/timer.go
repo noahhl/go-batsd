@@ -85,10 +85,12 @@ func (t *Timer) save(retention Retention, now time.Time) {
 		aggregates := fmt.Sprintf("%v/%v/%v/%v/%v/%v/%v/%v/%v", count, min, max, median, mean, stddev, percentile_90, percentile_95, percentile_99)
 
 		if retention.Index == 0 {
-			observation := AggregateObservation{"timers:" + t.Key, fmt.Sprintf("%d<X>%v", timestamp, aggregates), timestamp, "timers:" + t.Key, ""}
+			observation := AggregateObservation{Name: "timers:" + t.Key, Content: fmt.Sprintf("%d<X>%v", timestamp, aggregates), Timestamp: timestamp, RawName: "timers:" + t.Key, Path: ""}
 			StoreInRedis(observation)
 		} else {
-			observation := AggregateObservation{"timers:" + t.Key + ":" + strconv.FormatInt(retention.Interval, 10) + ":" + timerVersion, fmt.Sprintf("%d %v\n", timestamp, aggregates), timestamp, "timers:" + t.Key, t.Paths[retention.Index]}
+			observation := AggregateObservation{Name: "timers:" + t.Key + ":" + strconv.FormatInt(retention.Interval, 10) + ":" + timerVersion,
+				Content: fmt.Sprintf("%d %v\n", timestamp, aggregates), Timestamp: timestamp, RawName: "timers:" + t.Key, Path: t.Paths[retention.Index],
+				SummaryValues: map[string]float64{"count": float64(count), "min": min, "max": max, "median": median, "mean": mean, "stddev": stddev, "percentile_90": percentile_90, "percentile_95": percentile_95, "percentile_99": percentile_99}, Interval: retention.Interval}
 			StoreOnDisk(observation)
 		}
 	}()

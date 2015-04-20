@@ -60,7 +60,7 @@ func TestSavingToRedis(t *testing.T) {
 	defer d.redisPool.ReleaseConnection(r)
 
 	r.Del("test_metric")
-	obs := AggregateObservation{"test_metric", "12345<x>1", 1234, "1", ""}
+	obs := AggregateObservation{Name: "test_metric", Content: "12345<x>1", Timestamp: 1234, RawName: "1", Path: ""}
 	d.writeToRedis(obs)
 
 	if ok, _ := r.Exists("test_metric"); !ok {
@@ -88,7 +88,7 @@ func BenchmarkSavingToRedis(b *testing.B) {
 	for j := 0; j < b.N; j++ {
 		now := time.Now().UnixNano()
 		val := rand.Intn(1000)
-		obs := AggregateObservation{metric_samples[rand.Intn(len(metric_samples))], fmt.Sprintf("%v<X>%v", now, val), now, "1", ""}
+		obs := AggregateObservation{Name: metric_samples[rand.Intn(len(metric_samples))], Content: fmt.Sprintf("%v<X>%v", now, val), Timestamp: now, RawName: "1", Path: ""}
 		d.writeToRedis(obs)
 	}
 }
@@ -98,8 +98,8 @@ func TestSavingToDisk(t *testing.T) {
 	Config.RedisHost = "127.0.0.1"
 	Config.RedisPort = 6379
 
-	obs := AggregateObservation{"test_metric", "12345 1\n", 1234, "1", CalculateFilename("test_metric", "/tmp/batsd")}
-	obs2 := AggregateObservation{"test_metric", "123456 2\n", 1234, "1", CalculateFilename("test_metric", "/tmp/batsd")}
+	obs := AggregateObservation{Name: "test_metric", Content: "12345 1\n", Timestamp: 1234, RawName: "1", Path: CalculateFilename("test_metric", "/tmp/batsd")}
+	obs2 := AggregateObservation{Name: "test_metric", Content: "123456 2\n", Timestamp: 1234, RawName: "1", Path: CalculateFilename("test_metric", "/tmp/batsd")}
 	d := Datastore{}
 	d.redisPool = &clamp.ConnectionPoolWrapper{}
 	d.redisPool.InitPool(redisPoolSize, openRedisConnection)
@@ -147,7 +147,7 @@ func BenchmarkSavingToDisk(b *testing.B) {
 	b.ResetTimer()
 	for j := 0; j < b.N; j++ {
 		val := rand.Intn(1000)
-		o := AggregateObservation{metric_samples[rand.Intn(len(metric_samples))], fmt.Sprintf("%v %v\n", time.Now().Unix(), val), time.Now().Unix(), "", CalculateFilename("test_metric", "/tmp/batsd")}
+		o := AggregateObservation{Name: metric_samples[rand.Intn(len(metric_samples))], Content: fmt.Sprintf("%v %v\n", time.Now().Unix(), val), Timestamp: time.Now().Unix(), RawName: "", Path: CalculateFilename("test_metric", "/tmp/batsd")}
 		d.writeToDisk(o)
 	}
 }

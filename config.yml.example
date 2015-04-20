@@ -18,3 +18,5 @@ proxy:
     backend1:
       host: 127.0.0.1
       port: 8225
+hbase_hosts:
+  - 1.2.3.4:7496

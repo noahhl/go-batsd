@@ -33,7 +33,7 @@ func main() {
 		defer pprof.StopCPUProfile()
 	}
 
-	processingChannel := clamp.StartDualServer(":8125")
+	processingChannel := clamp.StartDualServer(":" + gobatsd.Config.Port)
 	clamp.StartStatsServer(":8124")
 	gobatsd.SetupDatastore()
 

@@ -5,12 +5,18 @@ import (
 
 	"bufio"
 	"crypto/md5"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"github.com/jinntrance/goh"
+	"github.com/jinntrance/goh/Hbase"
 	"github.com/noahhl/Go-Redis"
 	"io"
+	"math"
+	"math/rand"
 	"os"
 	"path/filepath"
+	"sort"
 	"syscall"
 	"time"
 )
@@ -18,11 +24,17 @@ import (
 type Datastore struct {
 	diskChannel  chan AggregateObservation
 	redisChannel chan AggregateObservation
+	hbaseChannel chan AggregateObservation
 	redisPool    *clamp.ConnectionPoolWrapper
+	hbasePool    *clamp.ConnectionPoolWrapper
 }
 
 var numRedisRoutines = 50
-var numDiskRoutines = 50
+var numDiskRoutines = 30
+var numHbaseRoutines = 10
+
+const hbaseBatchSize = 100
+
 var redisPoolSize = 20
 
 const diskstoreChannelSize = 100000
@@ -34,12 +46,21 @@ func SetupDatastore() {
 	datastore.diskChannel = make(chan AggregateObservation, diskstoreChannelSize)
 	datastore.redisChannel = make(chan AggregateObservation, channelBufferSize)
 	datastore.redisPool = MakeRedisPool(redisPoolSize)
+
+	if Config.Hbase {
+		datastore.hbaseChannel = make(chan AggregateObservation, channelBufferSize)
+		datastore.hbasePool = MakeHbasePool(numHbaseRoutines)
+	}
+
 	go func() {
 		c := time.Tick(1 * time.Second)
 		for {
 			<-c
 			clamp.StatsChannel <- clamp.Stat{"datastoreRedisChannelSize", fmt.Sprintf("%v", len(datastore.redisChannel))}
 			clamp.StatsChannel <- clamp.Stat{"datastoreDiskChannelSize", fmt.Sprintf("%v", len(datastore.diskChannel))}
+			if Config.Hbase {
+				clamp.StatsChannel <- clamp.Stat{"datastoreHbaseChannelSize", fmt.Sprintf("%v", len(datastore.hbaseChannel))}
+			}
 		}
 	}()
 	for i := 0; i < numDiskRoutines; i++ {
@@ -47,8 +68,36 @@ func SetupDatastore() {
 			for {
 				obs := <-datastore.diskChannel
 				datastore.writeToDisk(obs)
+				if Config.Hbase {
+					datastore.hbaseChannel <- obs
+				}
 			}
 		}()
+	}
+
+	if Config.Hbase {
+		for i := 0; i < numHbaseRoutines; i++ {
+			go func() {
+				observations := make([]AggregateObservation, 0)
+				for {
+					obs := <-datastore.hbaseChannel
+					observations = append(observations, obs)
+					if len(observations) >= hbaseBatchSize {
+						sort.Sort(AggregateObservations(observations))
+						batchStart := 0
+						for k := 1; k < len(observations); k++ {
+							if observations[k].Timestamp != observations[k-1].Timestamp {
+								datastore.writeToHbaseInBulk(observations[batchStart:k])
+								batchStart = k
+							}
+						}
+
+						observations = make([]AggregateObservation, 0)
+					}
+				}
+			}()
+		}
+
 	}
 
 	for i := 0; i < numRedisRoutines; i++ {
@@ -63,7 +112,13 @@ func SetupDatastore() {
 
 func MakeRedisPool(size int) *clamp.ConnectionPoolWrapper {
 	pool := &clamp.ConnectionPoolWrapper{}
-	pool.InitPool(redisPoolSize, openRedisConnection)
+	pool.InitPool(size, openRedisConnection)
+	return pool
+}
+
+func MakeHbasePool(size int) *clamp.ConnectionPoolWrapper {
+	pool := &clamp.ConnectionPoolWrapper{}
+	pool.InitPool(size, OpenHbaseConnection)
 	return pool
 }
 
@@ -79,6 +134,20 @@ func openRedisConnection() (interface{}, error) {
 	spec := redis.DefaultSpec().Host(Config.RedisHost).Port(Config.RedisPort)
 	r, err := redis.NewSynchClientWithSpec(spec)
 	return r, err
+}
+
+func OpenHbaseConnection() (interface{}, error) {
+	host := Config.HbaseConnections[rand.Intn(len(Config.HbaseConnections))]
+	fmt.Printf("%v: Opening an hbase connection to %v\n", time.Now(), host)
+	hbaseClient, err := goh.NewTcpClient(host, goh.TBinaryProtocol, false, 3*time.Second)
+	if err != nil {
+		fmt.Println(err)
+	}
+	err = hbaseClient.Open()
+	if err != nil {
+		fmt.Println(err)
+	}
+	return hbaseClient, err
 }
 
 func (d *Datastore) RecordMetric(name string) {
@@ -103,12 +172,12 @@ func (d *Datastore) writeToDisk(observation AggregateObservation) {
 			//Make containing directories if they don't exist
 			err = os.MkdirAll(filepath.Dir(observation.Path), 0755)
 			if err != nil {
-				fmt.Printf("%v", err)
+				fmt.Printf("%v\n", err)
 			}
 
 			file, err = os.Create(observation.Path)
 			if err != nil {
-				fmt.Printf("%v", err)
+				fmt.Printf("%v\n", err)
 			}
 			newFile = true
 		} else {
@@ -127,9 +196,57 @@ func (d *Datastore) writeToDisk(observation AggregateObservation) {
 	}
 }
 
+func (d *Datastore) writeToHbase(observation AggregateObservation) {
+	c := d.hbasePool.GetConnection().(*goh.HClient)
+	mutations := make([]*Hbase.Mutation, 0)
+	for k, v := range observation.SummaryValues {
+		mutations = append(mutations, goh.NewMutation(fmt.Sprintf("interval%v:%v", observation.Interval, k), EncodeFloat64(v)))
+	}
+
+	err := c.MutateRowTs(Config.HbaseTable, []byte(observation.RawName), mutations, observation.Timestamp, nil)
+	if err != nil {
+		fmt.Printf("%v: mutate error -  %v\n", time.Now(), err)
+	}
+	d.hbasePool.ReleaseConnection(c)
+}
+
+func (d *Datastore) writeToHbaseInBulk(observations []AggregateObservation) {
+	c := d.hbasePool.GetConnection().(*goh.HClient)
+	bulk := make([]*Hbase.BatchMutation, len(observations))
+	for i := range observations {
+		mutations := make([]*Hbase.Mutation, 0)
+		for k, v := range observations[i].SummaryValues {
+			mutations = append(mutations, goh.NewMutation(fmt.Sprintf("interval%v:%v", observations[i].Interval, k), EncodeFloat64(v)))
+		}
+		bulk[i] = goh.NewBatchMutation([]byte(observations[i].RawName), mutations)
+
+	}
+	err := c.MutateRowsTs(Config.HbaseTable, bulk, observations[0].Timestamp, nil)
+	if err != nil {
+		fmt.Printf("%v: mutate error -  %v\n", time.Now(), err)
+	}
+	d.hbasePool.ReleaseConnection(c)
+}
+
 func CalculateFilename(metric string, root string) string {
 	h := md5.New()
 	io.WriteString(h, metric)
 	metricHash := hex.EncodeToString(h.Sum([]byte{}))
 	return root + "/" + metricHash[0:2] + "/" + metricHash[2:4] + "/" + metricHash
+}
+
+func EncodeFloat64(float float64) []byte {
+	bits := math.Float64bits(float)
+	bytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(bytes, bits)
+	return bytes
+}
+
+func DecodeFloat64(b []byte) (float64, error) {
+	if len(b) == 8 {
+		bits := binary.BigEndian.Uint64(b)
+		return math.Float64frombits(bits), nil
+	}
+	err := new(error)
+	return 0, *err
 }
