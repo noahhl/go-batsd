@@ -64,10 +64,16 @@ func LoadConfig() {
 	redisPort, _ := strconv.Atoi(p)
 	redisHost, _ := c.Get("redis.host")
 
-	numHbases, _ := c.Count("hbase_hosts")
-	hbaseConnections := make([]string, numHbases)
-	for i := 0; i < numHbases; i++ {
-		hbaseConnections[i], _ = c.Get("hbase_hosts[" + strconv.Itoa(i) + "]")
+	numHbases, err := c.Count("hbase_hosts")
+	if err != nil && *hbase {
+		panic(err)
+	}
+	var hbaseConnections []string
+	if *hbase {
+		hbaseConnections = make([]string, numHbases)
+		for i := 0; i < numHbases; i++ {
+			hbaseConnections[i], _ = c.Get("hbase_hosts[" + strconv.Itoa(i) + "]")
+		}
 	}
 
 	Config = Configuration{*bindHost, *port, root, retentions, redisHost, redisPort, *duration, hbaseConnections, *hbaseTable, *hbase}

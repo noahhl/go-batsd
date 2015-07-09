@@ -64,24 +64,13 @@ func SetupDatastore() {
 			}
 		}
 	}()
-	for i := 0; i < numDiskRoutines; i++ {
-		go func() {
-			for {
-				obs := <-datastore.diskChannel
-				datastore.writeToDisk(obs)
-				if Config.Hbase {
-					datastore.hbaseChannel <- obs
-				}
-			}
-		}()
-	}
 
 	if Config.Hbase {
 		for i := 0; i < numHbaseRoutines; i++ {
 			go func() {
 				observations := make([]AggregateObservation, 0)
 				for {
-					obs := <-datastore.hbaseChannel
+					obs := <-datastore.diskChannel
 					observations = append(observations, obs)
 					if len(observations) >= hbaseBatchSize {
 						sort.Sort(AggregateObservations(observations))
@@ -100,6 +89,15 @@ func SetupDatastore() {
 			}()
 		}
 
+	} else {
+		for i := 0; i < numDiskRoutines; i++ {
+			go func() {
+				for {
+					obs := <-datastore.diskChannel
+					datastore.writeToDisk(obs)
+				}
+			}()
+		}
 	}
 
 	for i := 0; i < numRedisRoutines; i++ {
