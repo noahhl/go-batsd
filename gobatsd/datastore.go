@@ -130,6 +130,7 @@ func OpenHbaseConnection() (interface{}, error) {
 	hbaseClient, err := goh.NewTcpClient(host, goh.TBinaryProtocol, false, 3*time.Second)
 	if err != nil {
 		fmt.Println(err)
+		return OpenHbaseConnection()
 	}
 	err = hbaseClient.Open()
 	if err != nil {

@@ -8,10 +8,12 @@ import (
 )
 
 type Counter struct {
-	Key      string
-	Values   []float64
-	channels []chan float64
-	Paths    []string
+	Key       string
+	Values    []float64
+	channels  []chan float64
+	Paths     []string
+	lastWrite int64
+	active    bool
 }
 
 const counterInternalBufferSize = 10
@@ -34,6 +36,8 @@ func NewCounter(name string) Metric {
 }
 
 func (c *Counter) Start() {
+	c.active = true
+	c.lastWrite = time.Now().Unix()
 	for i := range Config.Retentions {
 		go func(retention Retention) {
 			ticker := NewTickerWithOffset(time.Duration(retention.Interval)*time.Second,
@@ -43,6 +47,11 @@ func (c *Counter) Start() {
 				case now := <-ticker:
 					//fmt.Printf("%v: Time to save %v at retention %v\n", now, c.Key, retention)
 					c.save(retention, now)
+					if c.lastWrite < now.Unix()-maxStaleTime {
+						//fmt.Printf("%v: %v at %v is stale, going home\n", now, c.Key, retention)
+						c.active = false
+						return
+					}
 				case val := <-c.channels[retention.Index]:
 					c.Values[retention.Index] += val
 				}
@@ -50,6 +59,10 @@ func (c *Counter) Start() {
 		}(Config.Retentions[i])
 
 	}
+}
+
+func (c *Counter) Active() bool {
+	return c.active
 }
 
 func (c *Counter) Update(value float64) {
@@ -66,6 +79,7 @@ func (c *Counter) save(retention Retention, now time.Time) {
 	if aggregateValue == 0 {
 		return
 	}
+	c.lastWrite = now.Unix()
 
 	if retention.Index == 0 {
 		observation := AggregateObservation{Name: "counters:" + c.Key, Content: fmt.Sprintf("%d<X>%v", timestamp, aggregateValue), Timestamp: timestamp, RawName: "counters:" + c.Key, Path: ""}

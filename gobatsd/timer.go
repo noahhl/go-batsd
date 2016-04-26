@@ -9,10 +9,12 @@ import (
 )
 
 type Timer struct {
-	Key      string
-	Values   [][]float64
-	channels []chan float64
-	Paths    []string
+	Key       string
+	Values    [][]float64
+	channels  []chan float64
+	Paths     []string
+	lastWrite int64
+	active    bool
 }
 
 const timerInternalBufferSize = 10
@@ -39,6 +41,8 @@ func NewTimer(name string) Metric {
 }
 
 func (t *Timer) Start() {
+	t.active = true
+	t.lastWrite = time.Now().Unix()
 	for i := range Config.Retentions {
 		go func(retention Retention) {
 			ticker := NewTickerWithOffset(time.Duration(retention.Interval)*time.Second,
@@ -46,8 +50,13 @@ func (t *Timer) Start() {
 			for {
 				select {
 				case now := <-ticker:
-					//fmt.Printf("%v: Time to save %v at retention %v\n", now, c.Key, retention)
+					//fmt.Printf("%v: Time to save %v at retention %v\n", now, t.Key, retention)
 					t.save(retention, now)
+					if t.lastWrite < now.Unix()-maxStaleTime {
+						//fmt.Printf("%v: %v at %v is stale, going home\n", now, t.Key, retention)
+						t.active = false
+						return
+					}
 				case val := <-t.channels[retention.Index]:
 					t.Values[retention.Index] = append(t.Values[retention.Index], val)
 				}
@@ -55,6 +64,10 @@ func (t *Timer) Start() {
 		}(Config.Retentions[i])
 
 	}
+}
+
+func (t *Timer) Active() bool {
+	return t.active
 }
 
 func (t *Timer) Update(value float64) {
@@ -69,6 +82,7 @@ func (t *Timer) save(retention Retention, now time.Time) {
 	if len(values) == 0 {
 		return
 	}
+	t.lastWrite = now.Unix()
 
 	go func() {
 		timestamp := now.Unix() - now.Unix()%retention.Interval
