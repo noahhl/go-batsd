@@ -144,6 +144,12 @@ func (d *Datastore) RecordMetric(name string) {
 	r.Sadd("datapoints", []byte(name))
 }
 
+func (d *Datastore) RecordCurrent(name string, val float64) {
+	r := d.redisPool.GetConnection().(redis.Client)
+	defer d.redisPool.ReleaseConnection(r)
+	r.Set(name, EncodeFloat64(val))
+}
+
 func (d *Datastore) writeToRedis(observation AggregateObservation) {
 	r := d.redisPool.GetConnection().(redis.Client)
 	defer d.redisPool.ReleaseConnection(r)
