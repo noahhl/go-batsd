@@ -1,0 +1,3 @@
+[submodule "vendor/github.com/noahhl/clamp"]
+	path = vendor/github.com/noahhl/clamp
+	url = git@github.com:noahhl/clamp
