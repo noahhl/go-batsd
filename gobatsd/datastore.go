@@ -127,7 +127,7 @@ func openRedisConnection() (interface{}, error) {
 func OpenHbaseConnection() (interface{}, error) {
 	host := Config.HbaseConnections[rand.Intn(len(Config.HbaseConnections))]
 	fmt.Printf("%v: Opening an hbase connection to %v\n", time.Now(), host)
-	hbaseClient, err := goh.NewTcpClient(host, goh.TBinaryProtocol, false, 3*time.Second)
+	hbaseClient, err := goh.NewTcpClient(host, goh.TBinaryProtocol, false, 10*time.Second)
 	if err != nil {
 		fmt.Println(err)
 	}

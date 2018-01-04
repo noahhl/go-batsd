@@ -33,7 +33,6 @@ func NewTimer(name string) Metric {
 	for i := range t.Paths {
 		t.Paths[i] = CalculateFilename(fmt.Sprintf("timers:%v:%v:%v", t.Key, Config.Retentions[i].Interval, timerVersion), Config.Root)
 	}
-	datastore.RecordMetric(fmt.Sprintf("timers:%v", t.Key))
 	t.Start()
 	return t
 }

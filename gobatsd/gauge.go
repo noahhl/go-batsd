@@ -16,7 +16,6 @@ func NewGauge(name string) Metric {
 	g := &Gauge{}
 	g.Key = name
 	g.Path = CalculateFilename("gauges:"+g.Key, Config.Root)
-	datastore.RecordMetric(fmt.Sprintf("gauges:%v", g.Key))
 	return g
 }
 
