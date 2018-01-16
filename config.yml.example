@@ -20,3 +20,6 @@ proxy:
       port: 8225
 hbase_hosts:
   - 1.2.3.4:7496
+bigtable:
+  project: my-project
+  instance: my-instance

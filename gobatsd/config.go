@@ -2,6 +2,7 @@ package gobatsd
 
 import (
 	"flag"
+	"fmt"
 	"github.com/kylelemons/go-gypsy/yaml"
 	"path/filepath"
 	"strconv"
@@ -22,6 +23,8 @@ type Configuration struct {
 	HbaseConnections []string
 	HbaseTable       string
 	Hbase            bool
+	BigtableProject  string
+	BigtableInstance string
 }
 
 var Config Configuration
@@ -64,14 +67,18 @@ func LoadConfig() {
 		panic(err)
 	}
 	var hbaseConnections []string
+	var bigtable_project, bigtable_instance string
 	if *hbase {
 		hbaseConnections = make([]string, numHbases)
 		for i := 0; i < numHbases; i++ {
 			hbaseConnections[i], _ = c.Get("hbase_hosts[" + strconv.Itoa(i) + "]")
 		}
+		bigtable_project, _ = c.Get("bigtable.project")
+		bigtable_instance, _ = c.Get("bigtable.instance")
 	}
 
-	Config = Configuration{*port, root, retentions, redisHost, redisPort, *duration, hbaseConnections, *hbaseTable, *hbase}
+	Config = Configuration{*port, root, retentions, redisHost, redisPort, *duration, hbaseConnections, *hbaseTable, *hbase, bigtable_project, bigtable_instance}
 
 	ProfileCPU = *cpuprofile
+	fmt.Printf("%v\n", Config)
 }

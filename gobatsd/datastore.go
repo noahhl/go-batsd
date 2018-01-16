@@ -4,6 +4,8 @@ import (
 	"github.com/noahhl/clamp"
 
 	"bufio"
+	"cloud.google.com/go/bigtable"
+	"context"
 	"crypto/md5"
 	"encoding/binary"
 	"encoding/hex"
@@ -12,26 +14,32 @@ import (
 	"github.com/jinntrance/goh"
 	"github.com/jinntrance/goh/Hbase"
 	"github.com/noahhl/Go-Redis"
+	"golang.org/x/oauth2/google"
+	"google.golang.org/api/option"
 	"io"
+	"io/ioutil"
 	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 )
 
 type Datastore struct {
-	diskChannel  chan AggregateObservation
-	redisChannel chan AggregateObservation
-	hbaseChannel chan AggregateObservation
-	redisPool    *clamp.ConnectionPoolWrapper
-	hbasePool    *clamp.ConnectionPoolWrapper
+	diskChannel   chan AggregateObservation
+	redisChannel  chan AggregateObservation
+	hbaseChannel  chan AggregateObservation
+	redisPool     *clamp.ConnectionPoolWrapper
+	hbasePool     *clamp.ConnectionPoolWrapper
+	bigtableTable *bigtable.Table
 }
 
 var numRedisRoutines = 50
 var numDiskRoutines = 25
+
 var numHbaseRoutines = 100
 
 const hbaseBatchSize = 100
@@ -51,6 +59,20 @@ func SetupDatastore() {
 	if Config.Hbase {
 		datastore.hbaseChannel = make(chan AggregateObservation, channelBufferSize)
 		datastore.hbasePool = MakeHbasePool(numHbaseRoutines)
+		jsonKey, err := ioutil.ReadFile("/etc/secrets/service_account_key.json")
+		if err != nil {
+			panic(err)
+		}
+		config, err := google.JWTConfigFromJSON(jsonKey, bigtable.Scope)
+		if err != nil {
+			panic(err)
+		}
+		client, err := bigtable.NewClient(context.Background(), Config.BigtableProject, Config.BigtableInstance, option.WithTokenSource(config.TokenSource(context.Background())))
+		if err != nil {
+			panic(err)
+		}
+
+		datastore.bigtableTable = client.Open(strings.Replace(Config.HbaseTable, ":", "-", -1))
 	}
 
 	go func() {
@@ -189,22 +211,29 @@ func (d *Datastore) writeToDisk(observation AggregateObservation) {
 
 	}
 }
+func (d *Datastore) writeToBigtableInBulk(observations []AggregateObservation) {
+	rowNames := make([]string, 0)
+	mutations := make([]*bigtable.Mutation, 0)
+	for i := range observations {
+		mut := bigtable.NewMutation()
+		for k, v := range observations[i].SummaryValues {
+			mut.Set(fmt.Sprintf("interval%v", observations[i].Interval), k, bigtable.Timestamp(observations[i].Timestamp*1000), EncodeFloat64(v))
+		}
 
-func (d *Datastore) writeToHbase(observation AggregateObservation) {
-	c := d.hbasePool.GetConnection().(*goh.HClient)
-	mutations := make([]*Hbase.Mutation, 0)
-	for k, v := range observation.SummaryValues {
-		mutations = append(mutations, goh.NewMutation(fmt.Sprintf("interval%v:%v", observation.Interval, k), EncodeFloat64(v)))
+		mutations = append(mutations, mut)
+		rowNames = append(rowNames, observations[i].RawName)
 	}
-
-	err := c.MutateRowTs(Config.HbaseTable, []byte(observation.RawName), mutations, observation.Timestamp, nil)
+	rowErrors, err := d.bigtableTable.ApplyBulk(context.Background(), rowNames, mutations)
 	if err != nil {
-		fmt.Printf("%v: mutate error -  %v\n", time.Now(), err)
+		fmt.Printf("ApplyBulk error: %v\n", err)
 	}
-	d.hbasePool.ReleaseConnection(c)
+	for _, e := range rowErrors {
+		fmt.Printf("Row error: %v", e)
+	}
 }
 
 func (d *Datastore) writeToHbaseInBulk(observations []AggregateObservation) {
+	d.writeToBigtableInBulk(observations)
 	c := d.hbasePool.GetConnection().(*goh.HClient)
 	bulk := make([]*Hbase.BatchMutation, len(observations))
 	for i := range observations {
