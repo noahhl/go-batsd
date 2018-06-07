@@ -33,11 +33,12 @@ func main() {
 		defer pprof.StopCPUProfile()
 	}
 
-	processingChannel := clamp.StartExplodingDualServer(":" + gobatsd.Config.Port)
-	clamp.StartStatsServer(":8124")
+	processingChannel := clamp.StartExplodingDualServer(fmt.Sprintf("%s:%s", gobatsd.Config.BindHost, gobatsd.Config.Port))
+	clamp.StartStatsServer(fmt.Sprintf("%s:%s", gobatsd.Config.BindHost, 8124))
+
 	gobatsd.SetupDatastore()
 
-	fmt.Printf("Starting on port %v\n", gobatsd.Config.Port)
+	fmt.Printf("Starting on host:port %s:%s\n", gobatsd.Config.BindHost, gobatsd.Config.Port)
 	gobatsd.InitializeInternalMetrics()
 
 	gaugeChannel = make(chan gobatsd.Datapoint, channelBufferSize)

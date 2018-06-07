@@ -14,6 +14,7 @@ type Retention struct {
 }
 
 type Configuration struct {
+	BindHost         string
 	Port, Root       string
 	Retentions       []Retention
 	RedisHost        string
@@ -30,6 +31,7 @@ var channelBufferSize = 10000
 
 func LoadConfig() {
 	configPath := flag.String("config", "./config.yml", "config file path")
+	bindHost := flag.String("bindhost", "default", "host to bind to")
 	port := flag.String("port", "default", "port to bind to")
 	duration := flag.Int64("duration", 0, "duration to operation on")
 	cpuprofile := flag.Bool("cpuprofile", false, "write cpu profile to file")
@@ -43,6 +45,9 @@ func LoadConfig() {
 		panic(err)
 	}
 	root, _ := c.Get("root")
+	if *bindHost == "default" {
+		*bindHost, _ = c.Get("bind")
+	}
 	if *port == "default" {
 		*port, _ = c.Get("port")
 	}
@@ -71,7 +76,7 @@ func LoadConfig() {
 		}
 	}
 
-	Config = Configuration{*port, root, retentions, redisHost, redisPort, *duration, hbaseConnections, *hbaseTable, *hbase}
+	Config = Configuration{*bindHost, *port, root, retentions, redisHost, redisPort, *duration, hbaseConnections, *hbaseTable, *hbase}
 
 	ProfileCPU = *cpuprofile
 }
